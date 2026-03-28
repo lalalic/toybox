@@ -21,6 +21,11 @@ struct ModelViewer: View {
     @State private var modelEntity: ModelEntity?
     @State private var pivotEntity: Entity?
 
+    // Gesture tracking (for deltas)
+    @State private var dragStartYaw: Float = 0
+    @State private var dragStartPitch: Float = 0
+    @State private var pinchStartDistance: Float = 0.5
+
     var body: some View {
         ZStack {
             // RealityKit 3D view
@@ -128,21 +133,29 @@ struct ModelViewer: View {
     private var dragGesture: some Gesture {
         DragGesture()
             .onChanged { value in
-                let sensitivity: Float = 0.01
-                yaw += Float(value.translation.width) * sensitivity
-                pitch += Float(value.translation.height) * sensitivity
+                if value.translation == .zero { return }
+                let sensitivity: Float = 0.004
+                yaw = dragStartYaw + Float(value.translation.width) * sensitivity
+                pitch = dragStartPitch + Float(value.translation.height) * sensitivity
                 // Clamp pitch to avoid flipping
                 pitch = max(-.pi / 2 + 0.1, min(.pi / 2 - 0.1, pitch))
                 updateRotation()
+            }
+            .onEnded { _ in
+                dragStartYaw = yaw
+                dragStartPitch = pitch
             }
     }
 
     private var magnifyGesture: some Gesture {
         MagnifyGesture()
             .onChanged { value in
-                let newDist = distance / Float(value.magnification)
-                distance = max(0.1, min(2.0, newDist))
+                let newDist = pinchStartDistance / Float(value.magnification)
+                distance = max(0.15, min(3.0, newDist))
                 updateRotation()
+            }
+            .onEnded { _ in
+                pinchStartDistance = distance
             }
     }
 
