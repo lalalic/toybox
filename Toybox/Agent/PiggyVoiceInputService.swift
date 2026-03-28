@@ -18,11 +18,7 @@ final class PiggyVoiceInputService {
     @ObservationIgnored private let speechRecognizer = SFSpeechRecognizer(locale: Locale(identifier: "en-US"))
 
     func startRecording() {
-        print("[PiggyVoice] startRecording called – isRecording=\(isRecording) isStarting=\(isStarting)")
-        guard !isRecording, !isStarting else {
-            print("[PiggyVoice] GUARD blocked – isRecording=\(isRecording) isStarting=\(isStarting)")
-            return
-        }
+        guard !isRecording, !isStarting else { return }
         isStarting = true
         finalTranscript = nil
         transcribedText = ""
@@ -104,10 +100,8 @@ final class PiggyVoiceInputService {
             recognitionRequest = request
             isRecording = true
             isStarting = false
-            print("[PiggyVoice] ✅ Recording started successfully")
         } catch {
             isStarting = false
-            print("[PiggyVoice] ❌ startRecording error: \(error)")
             errorMessage = error.localizedDescription
             finishRecording(commitTranscript: false)
         }

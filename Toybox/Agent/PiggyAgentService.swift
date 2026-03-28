@@ -17,7 +17,7 @@ final class PiggyAgentService {
 	var relayHost = UserDefaults.standard.string(forKey: "piggy.relayHost") ?? "relay.ai.qili2.com"
 	var relayPort: UInt16 = {
 		let value = UserDefaults.standard.integer(forKey: "piggy.relayPort")
-		return value > 0 ? UInt16(value) : 8765
+		return value > 0 ? UInt16(value) : 443
 	}()
 
 	@ObservationIgnored private var client: CopilotClient?
@@ -25,6 +25,8 @@ final class PiggyAgentService {
 	@ObservationIgnored private let speaker = AVSpeechSynthesizer()
 	@ObservationIgnored private let store = PiggyRelaySessionStore.shared
 	@ObservationIgnored private var activePersonaSignature: String?
+	/// Captured response from the relay's send_response tool
+	@ObservationIgnored private var capturedResponse: String?
 
 	func ask(_ userMessage: String, as toyName: String, settings: PiggyPersonaSettings) async -> String? {
 		let trimmed = userMessage.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -32,6 +34,7 @@ final class PiggyAgentService {
 
 		isThinking = true
 		lastError = nil
+		capturedResponse = nil
 		defer { isThinking = false }
 
 		do {
@@ -50,12 +53,19 @@ final class PiggyAgentService {
 			User says: \(trimmed)
 			"""
 
-			guard let reply = try await session.sendAndWait(prompt: prompt, timeout: 45) else {
-				throw PiggyAgentError.emptyReply
-			}
+			// sendAndWait captures assistant.message content, but relay uses
+			// send_response tool instead. We capture that via the tool handler
+			// registered in ensureSession and fall back to it here.
+			let directReply = try await session.sendAndWait(prompt: prompt, timeout: 90)
+			let reply = directReply?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+				? directReply : capturedResponse
 
 			if let snapshot = session.snapshotData {
 				store.saveSnapshot(snapshot, timestamp: session.snapshotTimestamp)
+			}
+
+			guard let reply, !reply.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+				throw PiggyAgentError.emptyReply
 			}
 
 			lastReply = reply.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -116,6 +126,7 @@ final class PiggyAgentService {
 		)
 
 		let session = try await client.createSession(config: config)
+
 		if let snapshot = session.snapshotData {
 			store.saveSnapshot(snapshot, timestamp: session.snapshotTimestamp)
 		}
@@ -133,7 +144,7 @@ final class PiggyAgentService {
 		guard !text.isEmpty else { return }
 		do {
 			let audioSession = AVAudioSession.sharedInstance()
-			try audioSession.setCategory(.playback, mode: .spokenAudio, options: [.duckOthers, .defaultToSpeaker])
+			try audioSession.setCategory(.playback, mode: .spokenAudio, options: [.duckOthers])
 			try audioSession.setActive(true)
 		} catch {
 			piggyAgentLogger.error("Failed to configure audio session: \(error.localizedDescription)")
@@ -161,6 +172,51 @@ final class PiggyAgentService {
 			ToolDefinition(name: "blink", description: "Make Piggy blink cutely.", skipPermission: true) { [weak self] _ in
 				await MainActor.run { self?.pendingGesture = .blink }
 				return "Piggy blinked."
+			},
+			// Relay agent-loop tools: send_response delivers the agent's reply
+			ToolDefinition(
+				name: "send_response",
+				description: "Send a response message to the user.",
+				parameters: .object([
+					"type": .string("object"),
+					"properties": .object([
+						"message": .object([
+							"type": .string("string"),
+							"description": .string("The response message"),
+						]),
+					]),
+					"required": .array([.string("message")]),
+				]),
+				skipPermission: true
+			) { [weak self] args in
+				let message: String
+				if case .object(let dict) = args, case .string(let msg) = dict["message"] {
+					message = msg
+				} else if case .string(let msg) = args {
+					message = msg
+				} else {
+					message = String(describing: args)
+				}
+				await MainActor.run { self?.capturedResponse = message }
+				return "Response delivered to user."
+			},
+			// Relay agent-loop tools: ask_user requests input
+			ToolDefinition(
+				name: "ask_user",
+				description: "Ask the user a question.",
+				parameters: .object([
+					"type": .string("object"),
+					"properties": .object([
+						"question": .object([
+							"type": .string("string"),
+							"description": .string("The question to ask"),
+						]),
+					]),
+					"required": .array([.string("question")]),
+				]),
+				skipPermission: true
+			) { _ in
+				return "User is busy right now. Continue with your best guess."
 			},
 		]
 	}
