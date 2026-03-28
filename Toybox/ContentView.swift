@@ -53,6 +53,14 @@ struct ContentView: View {
                     errorView("Model not found for annotation")
                 }
 
+            case .living:
+                if let toy = appModel.currentToy,
+                   let url = appModel.toyStore.modelURL(for: toy) {
+                    LivingToyView(toy: toy, modelURL: url)
+                } else {
+                    errorView("Model not found")
+                }
+
             case .failed(let message):
                 VStack(spacing: 16) {
                     Image(systemName: "exclamationmark.triangle.fill")

@@ -16,6 +16,7 @@ final class AppModel {
         case reconstructing // PhotogrammetrySession processing
         case viewing        // Showing reconstructed model
         case annotating     // Marking features on model
+        case living         // Animated, interactive toy
         case failed(String) // Error state
     }
 
@@ -66,6 +67,11 @@ final class AppModel {
     func annotateToy(_ toy: ToyModel) {
         currentToy = toy
         state = .annotating
+    }
+
+    func bringToLife(_ toy: ToyModel) {
+        currentToy = toy
+        state = .living
     }
 
     func returnHome() {

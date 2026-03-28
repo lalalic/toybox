@@ -100,6 +100,14 @@ struct ToyGallery: View {
                         selectedToy = toy
                     }
                     .contextMenu {
+                        if toy.features.count > 0 {
+                            Button {
+                                appModel.bringToLife(toy)
+                            } label: {
+                                Label("Bring to Life!", systemImage: "sparkles")
+                            }
+                        }
+
                         Button {
                             appModel.annotateToy(toy)
                         } label: {
