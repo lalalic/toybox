@@ -44,6 +44,8 @@ struct ContentView: View {
                    let url = appModel.toyStore.modelURL(for: toy) {
                     ModelViewer(modelURL: url, toyName: toy.name, onAnnotate: {
                         appModel.startAnnotating()
+                    }, onBringToLife: {
+                        appModel.bringToLife(toy)
                     }) {
                         appModel.returnHome()
                     }

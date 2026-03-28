@@ -9,6 +9,7 @@ struct ModelViewer: View {
     let modelURL: URL
     let toyName: String
     var onAnnotate: (() -> Void)?
+    var onBringToLife: (() -> Void)?
     var onDone: (() -> Void)?
 
     @State private var isLoading = true
@@ -85,6 +86,16 @@ struct ModelViewer: View {
                             Label("Mark Features", systemImage: "hand.point.up.left.fill")
                         }
                         .buttonStyle(.bordered)
+                    }
+
+                    if let onBringToLife {
+                        Button {
+                            onBringToLife()
+                        } label: {
+                            Label("Bring to Life!", systemImage: "sparkles")
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .tint(.orange)
                     }
 
                     if let onDone {

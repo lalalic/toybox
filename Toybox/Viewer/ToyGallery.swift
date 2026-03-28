@@ -68,6 +68,11 @@ struct ToyGallery: View {
                         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
                             appModel.annotateToy(toy)
                         }
+                    }, onBringToLife: {
+                        selectedToy = nil
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                            appModel.bringToLife(toy)
+                        }
                     }) {
                         selectedToy = nil
                     }

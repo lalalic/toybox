@@ -4,8 +4,8 @@ import os
 
 private let logger = Logger(subsystem: ToyboxConstants.subsystem, category: "LivingToyView")
 
-/// The main "living" toy view — shows the animated 3D model that breathes, blinks,
-/// and eventually talks. This is the end-state experience.
+/// The main "living" toy view — shows the animated 3D model with googly eyes,
+/// animated mouth, breathing, and blinking. Tap to interact!
 struct LivingToyView: View {
     @Environment(AppModel.self) var appModel
     let toy: ToyModel
@@ -14,6 +14,13 @@ struct LivingToyView: View {
     @State private var animator = ToyAnimator()
     @State private var isLoaded = false
     @State private var showControls = true
+    @State private var pivotEntity: Entity?
+
+    // Orbit state
+    @State private var yaw: Float = 0
+    @State private var pitch: Float = 0.2
+    @State private var dragStartYaw: Float = 0
+    @State private var dragStartPitch: Float = 0
 
     var body: some View {
         ZStack {
@@ -24,21 +31,28 @@ struct LivingToyView: View {
                 do {
                     let entity = try await ModelEntity(contentsOf: modelURL)
 
-                    // Center and scale for display
                     let bounds = entity.visualBounds(relativeTo: nil)
                     let maxExtent = max(bounds.extents.x, max(bounds.extents.y, bounds.extents.z))
                     let scale = 0.2 / maxExtent
                     entity.scale = SIMD3<Float>(repeating: scale)
                     entity.position = -bounds.center * scale
 
+                    let pivot = Entity()
+                    pivot.addChild(entity)
+
                     let anchor = AnchorEntity()
-                    anchor.addChild(entity)
+                    anchor.addChild(pivot)
                     content.add(anchor)
 
-                    // Set up animator with features
+                    pivotEntity = pivot
+
+                    // Set up animator with googly eyes and mouth
                     animator.setup(entity: entity, features: toy.features)
                     animator.startIdleAnimation()
                     isLoaded = true
+
+                    // Apply initial rotation
+                    updateRotation()
 
                     logger.info("Living toy loaded: \(toy.name)")
                 } catch {
@@ -47,11 +61,18 @@ struct LivingToyView: View {
             }
             .gesture(
                 DragGesture()
-                    .onChanged { _ in }
+                    .onChanged { value in
+                        let sensitivity: Float = 0.004
+                        yaw = dragStartYaw + Float(value.translation.width) * sensitivity
+                        pitch = dragStartPitch + Float(value.translation.height) * sensitivity
+                        pitch = max(-.pi / 2 + 0.1, min(.pi / 2 - 0.1, pitch))
+                        updateRotation()
+                    }
+                    .onEnded { _ in
+                        dragStartYaw = yaw
+                        dragStartPitch = pitch
+                    }
             )
-            .onTapGesture {
-                withAnimation { showControls.toggle() }
-            }
 
             // UI overlay
             if showControls {
@@ -63,15 +84,9 @@ struct LivingToyView: View {
                                 .fontWeight(.bold)
                                 .foregroundStyle(.white)
 
-                            if toy.isFullyAnnotated {
-                                Text("Fully rigged")
-                                    .font(.caption)
-                                    .foregroundStyle(.green)
-                            } else {
-                                Text("\(toy.features.count) features")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                            }
+                            Text(isLoaded ? "Alive! 👀" : "Loading...")
+                                .font(.caption)
+                                .foregroundStyle(isLoaded ? .green : .secondary)
                         }
 
                         Spacer()
@@ -91,28 +106,37 @@ struct LivingToyView: View {
 
                     // Action buttons
                     HStack(spacing: 20) {
-                        ActionButton(icon: "hand.wave.fill", label: "Wave") {
-                            // TODO: Trigger wave animation
+                        ActionButton(icon: "mouth.fill", label: "Talk") {
+                            Task { await animator.speak(syllables: 10) }
                         }
 
-                        ActionButton(icon: "mouth.fill", label: "Talk") {
-                            // TODO: Trigger speech
+                        ActionButton(icon: "hand.wave.fill", label: "Wiggle") {
+                            // Quick wiggle animation
                             Task {
-                                for _ in 0..<5 {
-                                    animator.setMouthOpen(Float.random(in: 0.3...1.0))
-                                    try? await Task.sleep(for: .milliseconds(150))
-                                    animator.setMouthOpen(0)
+                                guard let pivot = pivotEntity else { return }
+                                let base = pivot.orientation
+                                for _ in 0..<3 {
+                                    let wobble = simd_quatf(angle: 0.1, axis: SIMD3(0, 0, 1))
+                                    pivot.orientation = base * wobble
+                                    try? await Task.sleep(for: .milliseconds(100))
+                                    let wobble2 = simd_quatf(angle: -0.1, axis: SIMD3(0, 0, 1))
+                                    pivot.orientation = base * wobble2
                                     try? await Task.sleep(for: .milliseconds(100))
                                 }
+                                pivot.orientation = base
                             }
                         }
 
-                        ActionButton(icon: "face.smiling.fill", label: "Blink") {
-                            // Manual blink via animation
-                        }
-
-                        ActionButton(icon: "camera.fill", label: "Photo") {
-                            // TODO: Screenshot
+                        ActionButton(icon: "arrow.uturn.backward", label: "Spin") {
+                            Task {
+                                guard let pivot = pivotEntity else { return }
+                                for i in 0..<36 {
+                                    yaw = dragStartYaw + Float(i) * (.pi * 2 / 36)
+                                    updateRotation()
+                                    try? await Task.sleep(for: .milliseconds(30))
+                                }
+                                dragStartYaw = yaw
+                            }
                         }
                     }
                     .padding(.bottom, 30)
@@ -120,6 +144,13 @@ struct LivingToyView: View {
                 .transition(.opacity)
             }
         }
+    }
+
+    private func updateRotation() {
+        guard let pivot = pivotEntity else { return }
+        let yawQ = simd_quatf(angle: yaw, axis: SIMD3<Float>(0, 1, 0))
+        let pitchQ = simd_quatf(angle: pitch, axis: SIMD3<Float>(1, 0, 0))
+        pivot.orientation = yawQ * pitchQ
     }
 }
 
@@ -143,6 +174,6 @@ private struct ActionButton: View {
                     .foregroundStyle(.white.opacity(0.7))
             }
         }
-        .buttonStyle(.plain)
+        .accessibilityAddTraits(.isButton)
     }
 }
