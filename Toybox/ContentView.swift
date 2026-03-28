@@ -23,9 +23,18 @@ struct ContentView: View {
                     errorView("Scanner not available")
                 }
 
+            case .photoCapture:
+                if let folder = appModel.captureFolder {
+                    PhotoCaptureView(folderManager: folder)
+                } else {
+                    errorView("Photo capture not available")
+                }
+
             case .reconstructing:
                 if let coordinator = appModel.scanCoordinator {
                     ReconstructionView(folderManager: coordinator.folderManager)
+                } else if let folder = appModel.captureFolder {
+                    ReconstructionView(folderManager: folder)
                 } else {
                     errorView("Reconstruction data not available")
                 }

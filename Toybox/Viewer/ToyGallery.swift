@@ -30,11 +30,13 @@ struct ToyGallery: View {
             .toolbar {
                 ToolbarItem(placement: .primaryAction) {
                     Menu {
-                        if appModel.isScanningSupported {
-                            Button {
-                                showNewScanSheet = true
-                            } label: {
+                        Button {
+                            showNewScanSheet = true
+                        } label: {
+                            if appModel.isLiDARSupported {
                                 Label("Scan New Toy", systemImage: "camera.viewfinder")
+                            } else {
+                                Label("Capture New Toy", systemImage: "camera.fill")
                             }
                         }
 
@@ -89,29 +91,25 @@ struct ToyGallery: View {
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
 
-            if appModel.isScanningSupported {
-                Button {
-                    showNewScanSheet = true
-                } label: {
+            Button {
+                showNewScanSheet = true
+            } label: {
+                if appModel.isLiDARSupported {
                     Label("Scan a Toy", systemImage: "camera.viewfinder")
                         .font(.headline)
-                }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.large)
-            } else {
-                VStack(spacing: 8) {
-                    Image(systemName: "sensor.tag.radiowaves.forward")
-                        .font(.title)
-                        .foregroundStyle(.orange)
-                    Text("LiDAR Required")
+                } else {
+                    Label("Capture a Toy", systemImage: "camera.fill")
                         .font(.headline)
-                    Text("3D scanning needs a device with LiDAR sensor.\nYou can still view toys scanned on another device.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .multilineTextAlignment(.center)
                 }
-                .padding()
-                .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12))
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.large)
+
+            if !appModel.isLiDARSupported {
+                Text("Take photos around your toy to create a 3D model")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
             }
 
             // Import option always available
