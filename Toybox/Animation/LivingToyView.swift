@@ -64,31 +64,35 @@ struct LivingToyView: View {
                     logger.error("Failed to load living toy: \(error)")
                 }
             }
-            .gesture(
-                DragGesture()
-                    .onChanged { value in
-                        let sensitivity: Float = 0.004
-                        yaw = dragStartYaw + Float(value.translation.width) * sensitivity
-                        pitch = dragStartPitch + Float(value.translation.height) * sensitivity
-                        pitch = max(-.pi / 2 + 0.1, min(.pi / 2 - 0.1, pitch))
-                        updateRotation()
-                    }
-                    .onEnded { _ in
-                        dragStartYaw = yaw
-                        dragStartPitch = pitch
-                    }
-            )
-            .gesture(
-                MagnifyGesture()
-                    .onChanged { value in
-                        let ratio = Float(value.magnification)
-                        cameraDistance = max(0.3, min(5.0, pinchStartDistance * ratio))
-                        updateZoom()
-                    }
-                    .onEnded { _ in
-                        pinchStartDistance = cameraDistance
-                    }
-            )
+            .allowsHitTesting(false)
+
+            Color.clear
+                .contentShape(Rectangle())
+                .gesture(
+                    DragGesture()
+                        .onChanged { value in
+                            let sensitivity: Float = 0.004
+                            yaw = dragStartYaw + Float(value.translation.width) * sensitivity
+                            pitch = dragStartPitch + Float(value.translation.height) * sensitivity
+                            pitch = max(-.pi / 2 + 0.1, min(.pi / 2 - 0.1, pitch))
+                            updateRotation()
+                        }
+                        .onEnded { _ in
+                            dragStartYaw = yaw
+                            dragStartPitch = pitch
+                        }
+                )
+                .gesture(
+                    MagnifyGesture()
+                        .onChanged { value in
+                            let ratio = Float(value.magnification)
+                            cameraDistance = max(0.3, min(5.0, pinchStartDistance * ratio))
+                            updateZoom()
+                        }
+                        .onEnded { _ in
+                            pinchStartDistance = cameraDistance
+                        }
+                )
 
             // UI overlay
             if showControls {
