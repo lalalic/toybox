@@ -16,6 +16,7 @@ struct LivingToyView: View {
     @State private var showControls = true
     @State private var pivotEntity: Entity?
     @State private var piggyAgent = PiggyAgentService()
+    @State private var voiceInput = PiggyVoiceInputService()
     @State private var agentInput = ""
 
     // Orbit state
@@ -164,6 +165,12 @@ struct LivingToyView: View {
         }
         .onDisappear {
             piggyAgent.disconnect()
+            voiceInput.cancelRecording()
+        }
+        .onChange(of: voiceInput.finalTranscript) { _, transcript in
+            guard let transcript, !transcript.isEmpty else { return }
+            agentInput = transcript
+            sendToPiggy(transcript)
         }
     }
 
@@ -212,6 +219,31 @@ struct LivingToyView: View {
                     .padding(12)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 14))
+            } else if voiceInput.isRecording || !voiceInput.transcribedText.isEmpty {
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack(spacing: 8) {
+                        Circle()
+                            .fill(.red)
+                            .frame(width: 8, height: 8)
+                        Text(voiceInput.isRecording ? "Listening..." : "Heard")
+                            .font(.caption)
+                            .foregroundStyle(.white.opacity(0.8))
+                    }
+
+                    Text(voiceInput.transcribedText.isEmpty ? "Say something to Piggy" : voiceInput.transcribedText)
+                        .font(.subheadline)
+                        .foregroundStyle(.white)
+                }
+                .padding(12)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 14))
+            } else if let voiceError = voiceInput.errorMessage {
+                Text(voiceError)
+                    .font(.caption)
+                    .foregroundStyle(.red.opacity(0.9))
+                    .padding(12)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 14))
             }
 
             HStack(spacing: 10) {
@@ -219,7 +251,17 @@ struct LivingToyView: View {
                     .textFieldStyle(.roundedBorder)
                     .submitLabel(.send)
                     .onSubmit(sendToPiggy)
-                    .disabled(piggyAgent.isThinking)
+                    .disabled(piggyAgent.isThinking || voiceInput.isRecording)
+
+                Button {
+                    toggleVoiceInput()
+                } label: {
+                    Image(systemName: voiceInput.isRecording ? "stop.fill" : "mic.fill")
+                        .font(.headline)
+                }
+                .buttonStyle(.bordered)
+                .tint(voiceInput.isRecording ? .red : .white)
+                .disabled(piggyAgent.isThinking)
 
                 Button {
                     sendToPiggy()
@@ -235,8 +277,20 @@ struct LivingToyView: View {
         .background(.black.opacity(0.28), in: RoundedRectangle(cornerRadius: 18))
     }
 
+    private func toggleVoiceInput() {
+        if voiceInput.isRecording {
+            voiceInput.stopRecordingAndSubmit()
+        } else {
+            voiceInput.startRecording()
+        }
+    }
+
     private func sendToPiggy() {
-        let text = agentInput.trimmingCharacters(in: .whitespacesAndNewlines)
+        sendToPiggy(agentInput)
+    }
+
+    private func sendToPiggy(_ message: String) {
+        let text = message.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
         agentInput = ""
 

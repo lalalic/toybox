@@ -8,6 +8,10 @@
 	<true/>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>Toybox uses the local network for remote debugging and automation.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Toybox uses the microphone so you can talk to your toy.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>Toybox uses speech recognition to turn your voice into messages for your toy.</string>
 	<key>NSBonjourServices</key>
 	<array>
 		<string>_http._tcp</string>
