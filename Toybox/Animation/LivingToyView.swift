@@ -29,117 +29,122 @@ struct LivingToyView: View {
     @State private var pinchStartDistance: Float = 1.0
 
     var body: some View {
-        ZStack {
-            Color.black.ignoresSafeArea()
+        VStack(spacing: 0) {
+            // Top half: 3D model
+            ZStack {
+                Color.black
 
-            // Animated 3D model
-            RealityView { content in
-                do {
-                    let entity = try await ModelEntity(contentsOf: modelURL)
+                RealityView { content in
+                    do {
+                        let entity = try await ModelEntity(contentsOf: modelURL)
 
-                    let bounds = entity.visualBounds(relativeTo: nil)
-                    let maxExtent = max(bounds.extents.x, max(bounds.extents.y, bounds.extents.z))
-                    let scale = 0.2 / maxExtent
-                    entity.scale = SIMD3<Float>(repeating: scale)
-                    entity.position = -bounds.center * scale
+                        let bounds = entity.visualBounds(relativeTo: nil)
+                        let maxExtent = max(bounds.extents.x, max(bounds.extents.y, bounds.extents.z))
+                        let scale = 0.35 / maxExtent
+                        entity.scale = SIMD3<Float>(repeating: scale)
+                        entity.position = -bounds.center * scale
 
-                    let pivot = Entity()
-                    pivot.addChild(entity)
+                        let pivot = Entity()
+                        pivot.addChild(entity)
 
-                    let anchor = AnchorEntity()
-                    anchor.addChild(pivot)
-                    content.add(anchor)
+                        let anchor = AnchorEntity()
+                        anchor.addChild(pivot)
+                        content.add(anchor)
 
-                    pivotEntity = pivot
+                        pivotEntity = pivot
 
-                    // Set up animator with googly eyes and mouth
-                    animator.setup(entity: entity, features: toy.features)
-                    animator.startIdleAnimation()
-                    isLoaded = true
+                        animator.setup(entity: entity, features: toy.features)
+                        animator.startIdleAnimation()
+                        isLoaded = true
 
-                    // Apply initial rotation
-                    updateRotation()
+                        updateRotation()
 
-                    logger.info("Living toy loaded: \(toy.name)")
-                } catch {
-                    logger.error("Failed to load living toy: \(error)")
+                        logger.info("Living toy loaded: \(toy.name)")
+                    } catch {
+                        logger.error("Failed to load living toy: \(error)")
+                    }
                 }
-            }
-            .allowsHitTesting(false)
+                .allowsHitTesting(false)
 
-            Color.clear
-                .contentShape(Rectangle())
-                .gesture(
-                    DragGesture()
-                        .onChanged { value in
-                            let sensitivity: Float = 0.004
-                            yaw = dragStartYaw + Float(value.translation.width) * sensitivity
-                            pitch = dragStartPitch + Float(value.translation.height) * sensitivity
-                            pitch = max(-.pi / 2 + 0.1, min(.pi / 2 - 0.1, pitch))
-                            updateRotation()
-                        }
-                        .onEnded { _ in
-                            dragStartYaw = yaw
-                            dragStartPitch = pitch
-                        }
-                )
-                .gesture(
-                    MagnifyGesture()
-                        .onChanged { value in
-                            let ratio = Float(value.magnification)
-                            cameraDistance = max(0.3, min(5.0, pinchStartDistance * ratio))
-                            updateZoom()
-                        }
-                        .onEnded { _ in
-                            pinchStartDistance = cameraDistance
-                        }
-                )
+                Color.clear
+                    .contentShape(Rectangle())
+                    .gesture(
+                        DragGesture()
+                            .onChanged { value in
+                                let sensitivity: Float = 0.004
+                                yaw = dragStartYaw + Float(value.translation.width) * sensitivity
+                                pitch = dragStartPitch + Float(value.translation.height) * sensitivity
+                                pitch = max(-.pi / 2 + 0.1, min(.pi / 2 - 0.1, pitch))
+                                updateRotation()
+                            }
+                            .onEnded { _ in
+                                dragStartYaw = yaw
+                                dragStartPitch = pitch
+                            }
+                    )
+                    .gesture(
+                        MagnifyGesture()
+                            .onChanged { value in
+                                let ratio = Float(value.magnification)
+                                cameraDistance = max(0.3, min(5.0, pinchStartDistance * ratio))
+                                updateZoom()
+                            }
+                            .onEnded { _ in
+                                pinchStartDistance = cameraDistance
+                            }
+                    )
 
-            // UI overlay
-            if showControls {
-                VStack {
-                    HStack {
-                        VStack(alignment: .leading) {
-                            Text(toy.name)
-                                .font(.title2)
-                                .fontWeight(.bold)
-                                .foregroundStyle(.white)
+                // Title overlay (top of model area)
+                if showControls {
+                    VStack {
+                        HStack {
+                            VStack(alignment: .leading) {
+                                Text(toy.name)
+                                    .font(.title2)
+                                    .fontWeight(.bold)
+                                    .foregroundStyle(.white)
 
-                            Text(isLoaded ? "Alive! 👀" : "Loading...")
-                                .font(.caption)
-                                .foregroundStyle(isLoaded ? .green : .secondary)
+                                Text(isLoaded ? "Alive! 👀" : "Loading...")
+                                    .font(.caption)
+                                    .foregroundStyle(isLoaded ? .green : .secondary)
+                            }
+
+                            Spacer()
+
+                            Button {
+                                showSetup = true
+                            } label: {
+                                Image(systemName: "slider.horizontal.3")
+                                    .font(.title3)
+                                    .foregroundStyle(.white.opacity(0.8))
+                            }
+
+                            Button {
+                                animator.stopAnimation()
+                                appModel.returnHome()
+                            } label: {
+                                Image(systemName: "xmark.circle.fill")
+                                    .font(.title)
+                                    .foregroundStyle(.white.opacity(0.7))
+                            }
                         }
+                        .padding()
 
                         Spacer()
-
-                        Button {
-                            showSetup = true
-                        } label: {
-                            Image(systemName: "slider.horizontal.3")
-                                .font(.title3)
-                                .foregroundStyle(.white.opacity(0.8))
-                        }
-
-                        Button {
-                            animator.stopAnimation()
-                            appModel.returnHome()
-                        } label: {
-                            Image(systemName: "xmark.circle.fill")
-                                .font(.title)
-                                .foregroundStyle(.white.opacity(0.7))
-                        }
                     }
-                    .padding()
-
-                    Spacer()
-
-                    piggyChatPanel
-                        .padding(.horizontal)
-                    .padding(.bottom, 30)
                 }
-                .transition(.opacity)
+            }
+            .frame(maxHeight: .infinity)
+
+            // Bottom half: chat panel
+            if showControls {
+                piggyChatPanel
+                    .padding(.horizontal, 14)
+                    .padding(.bottom, 30)
+                    .frame(maxHeight: .infinity, alignment: .bottom)
             }
         }
+        .background(Color.black.ignoresSafeArea())
         .onDisappear {
             piggyAgent.disconnect()
             voiceInput.cancelRecording()
