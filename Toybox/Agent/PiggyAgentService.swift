@@ -13,6 +13,7 @@ final class PiggyAgentService {
 	var isThinking = false
 	var lastReply = ""
 	var lastError: String?
+	var pendingGesture: PiggyGestureAction?
 	var relayHost = UserDefaults.standard.string(forKey: "piggy.relayHost") ?? "relay.ai.qili2.com"
 	var relayPort: UInt16 = {
 		let value = UserDefaults.standard.integer(forKey: "piggy.relayPort")
@@ -23,8 +24,9 @@ final class PiggyAgentService {
 	@ObservationIgnored private var session: CopilotSession?
 	@ObservationIgnored private let speaker = AVSpeechSynthesizer()
 	@ObservationIgnored private let store = PiggyRelaySessionStore.shared
+	@ObservationIgnored private var activePersonaSignature: String?
 
-	func ask(_ userMessage: String, as toyName: String) async -> String? {
+	func ask(_ userMessage: String, as toyName: String, settings: PiggyPersonaSettings) async -> String? {
 		let trimmed = userMessage.trimmingCharacters(in: .whitespacesAndNewlines)
 		guard !trimmed.isEmpty else { return nil }
 
@@ -33,12 +35,16 @@ final class PiggyAgentService {
 		defer { isThinking = false }
 
 		do {
-			let session = try await ensureSession(for: toyName)
+			let session = try await ensureSession(for: toyName, settings: settings)
 			let prompt = """
 			You are \(toyName), a cute toy pig living on the user's iPhone.
 			Reply in first person as the toy.
+			Your personality is: \(settings.personality).
+			Your age vibe is: \(settings.age.promptText).
+			Your speaking style is: \(settings.voice.promptText).
 			Keep the reply short, warm, playful, encouraging, and under 2 sentences.
 			Sound like a beloved toy friend, not a generic assistant.
+			If the moment feels expressive, you may use one gesture tool before replying.
 			No markdown.
 
 			User says: \(trimmed)
@@ -68,14 +74,25 @@ final class PiggyAgentService {
 			if let session {
 				try? await session.disconnect()
 			}
+			speaker.stopSpeaking(at: .immediate)
 			client?.disconnect()
 			session = nil
 			client = nil
+			activePersonaSignature = nil
 			isConnected = false
 		}
 	}
 
-	private func ensureSession(for toyName: String) async throws -> CopilotSession {
+	func clearPendingGesture() {
+		pendingGesture = nil
+	}
+
+	private func ensureSession(for toyName: String, settings: PiggyPersonaSettings) async throws -> CopilotSession {
+		let signature = "\(toyName)|\(settings.personality)|\(settings.age.rawValue)|\(settings.voice.rawValue)"
+		if activePersonaSignature != signature, session != nil {
+			disconnect()
+		}
+
 		if let session {
 			return session
 		}
@@ -87,9 +104,12 @@ final class PiggyAgentService {
 		store.lastRelayHost = relayHost
 		store.lastRelayPort = relayPort
 
+		let tools = buildGestureTools()
+
 		let config = SessionConfig(
 			model: "gpt-4.1",
-			systemMessage: .append("You are \(toyName), a scanned pig toy companion living in Toybox on iPhone. You are affectionate, child-safe, playful, and emotionally warm. Speak like a tiny best friend with a gentle piggy personality. Stay in character as the toy, keep answers concise, and avoid sounding like a generic AI assistant."),
+			tools: tools,
+			systemMessage: .append("You are \(toyName), a scanned pig toy companion living in Toybox on iPhone. Your personality is \(settings.personality). Your age vibe is \(settings.age.promptText). Your voice style is \(settings.voice.promptText). You are affectionate, child-safe, playful, and emotionally warm. Speak like a tiny best friend with a gentle piggy personality. Stay in character as the toy, keep answers concise, and avoid sounding like a generic AI assistant. When fitting, you may call one of your gesture tools to animate your body before you speak."),
 			clientId: store.clientId,
 			snapshot: store.savedSnapshot,
 			onPermissionRequest: { _ in .approved }
@@ -102,6 +122,7 @@ final class PiggyAgentService {
 
 		self.client = client
 		self.session = session
+		self.activePersonaSignature = signature
 		self.isConnected = true
 
 		piggyAgentLogger.info("Piggy agent connected via relay \(self.relayHost):\(self.relayPort)")
@@ -113,11 +134,35 @@ final class PiggyAgentService {
 		speaker.stopSpeaking(at: .immediate)
 		let utterance = AVSpeechUtterance(string: text)
 		utterance.voice = AVSpeechSynthesisVoice(language: "en-US")
-		utterance.rate = 0.44
-		utterance.pitchMultiplier = 1.32
+		let settings = PiggyPersonaSettingsStore.shared.load()
+		utterance.rate = settings.voice.rate
+		utterance.pitchMultiplier = settings.voice.pitch
 		utterance.volume = 1.0
 		speaker.speak(utterance)
 	}
+
+	private func buildGestureTools() -> [ToolDefinition] {
+		[
+			ToolDefinition(name: "wiggle", description: "Make Piggy wiggle happily.", skipPermission: true) { [weak self] _ in
+				await MainActor.run { self?.pendingGesture = .wiggle }
+				return "Piggy wiggled."
+			},
+			ToolDefinition(name: "spin", description: "Make Piggy do a playful spin.", skipPermission: true) { [weak self] _ in
+				await MainActor.run { self?.pendingGesture = .spin }
+				return "Piggy spun around."
+			},
+			ToolDefinition(name: "blink", description: "Make Piggy blink cutely.", skipPermission: true) { [weak self] _ in
+				await MainActor.run { self?.pendingGesture = .blink }
+				return "Piggy blinked."
+			},
+		]
+	}
+}
+
+enum PiggyGestureAction: String, Sendable {
+	case wiggle
+	case spin
+	case blink
 }
 
 private enum PiggyAgentError: LocalizedError {

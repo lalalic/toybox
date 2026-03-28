@@ -17,6 +17,8 @@ struct LivingToyView: View {
     @State private var pivotEntity: Entity?
     @State private var piggyAgent = PiggyAgentService()
     @State private var voiceInput = PiggyVoiceInputService()
+    @State private var personaSettings = PiggyPersonaSettingsStore.shared.load()
+    @State private var showSetup = false
     @State private var agentInput = ""
 
     // Orbit state
@@ -112,6 +114,14 @@ struct LivingToyView: View {
                         Spacer()
 
                         Button {
+                            showSetup = true
+                        } label: {
+                            Image(systemName: "slider.horizontal.3")
+                                .font(.title3)
+                                .foregroundStyle(.white.opacity(0.8))
+                        }
+
+                        Button {
                             animator.stopAnimation()
                             appModel.returnHome()
                         } label: {
@@ -126,42 +136,6 @@ struct LivingToyView: View {
 
                     piggyChatPanel
                         .padding(.horizontal)
-
-                    // Action buttons
-                    HStack(spacing: 20) {
-                        ActionButton(icon: "mouth.fill", label: "Talk") {
-                            Task { await animator.speak(syllables: 10) }
-                        }
-
-                        ActionButton(icon: "hand.wave.fill", label: "Wiggle") {
-                            // Quick wiggle animation
-                            Task {
-                                guard let pivot = pivotEntity else { return }
-                                let base = pivot.orientation
-                                for _ in 0..<3 {
-                                    let wobble = simd_quatf(angle: 0.1, axis: SIMD3(0, 0, 1))
-                                    pivot.orientation = base * wobble
-                                    try? await Task.sleep(for: .milliseconds(100))
-                                    let wobble2 = simd_quatf(angle: -0.1, axis: SIMD3(0, 0, 1))
-                                    pivot.orientation = base * wobble2
-                                    try? await Task.sleep(for: .milliseconds(100))
-                                }
-                                pivot.orientation = base
-                            }
-                        }
-
-                        ActionButton(icon: "arrow.uturn.backward", label: "Spin") {
-                            Task {
-                                guard let pivot = pivotEntity else { return }
-                                for i in 0..<36 {
-                                    yaw = dragStartYaw + Float(i) * (.pi * 2 / 36)
-                                    updateRotation()
-                                    try? await Task.sleep(for: .milliseconds(30))
-                                }
-                                dragStartYaw = yaw
-                            }
-                        }
-                    }
                     .padding(.bottom, 30)
                 }
                 .transition(.opacity)
@@ -175,6 +149,17 @@ struct LivingToyView: View {
             guard let transcript, !transcript.isEmpty else { return }
             agentInput = transcript
             sendToPiggy(transcript)
+        }
+        .onChange(of: piggyAgent.pendingGesture) { _, gesture in
+            guard let gesture else { return }
+            performGesture(gesture)
+            piggyAgent.clearPendingGesture()
+        }
+        .sheet(isPresented: $showSetup) {
+            PiggySetupSheet(settings: $personaSettings) {
+                PiggyPersonaSettingsStore.shared.save(personaSettings)
+                piggyAgent.disconnect()
+            }
         }
     }
 
@@ -289,6 +274,38 @@ struct LivingToyView: View {
         }
     }
 
+    private func performGesture(_ gesture: PiggyGestureAction) {
+        switch gesture {
+        case .wiggle:
+            Task {
+                guard let pivot = pivotEntity else { return }
+                let base = pivot.orientation
+                for _ in 0..<3 {
+                    let wobble = simd_quatf(angle: 0.1, axis: SIMD3(0, 0, 1))
+                    pivot.orientation = base * wobble
+                    try? await Task.sleep(for: .milliseconds(100))
+                    let wobble2 = simd_quatf(angle: -0.1, axis: SIMD3(0, 0, 1))
+                    pivot.orientation = base * wobble2
+                    try? await Task.sleep(for: .milliseconds(100))
+                }
+                pivot.orientation = base
+            }
+        case .spin:
+            Task {
+                for i in 0..<36 {
+                    yaw = dragStartYaw + Float(i) * (.pi * 2 / 36)
+                    updateRotation()
+                    try? await Task.sleep(for: .milliseconds(30))
+                }
+                dragStartYaw = yaw
+            }
+        case .blink:
+            Task {
+                await animator.speak(syllables: 2)
+            }
+        }
+    }
+
     private func sendToPiggy() {
         sendToPiggy(agentInput)
     }
@@ -299,34 +316,58 @@ struct LivingToyView: View {
         agentInput = ""
 
         Task {
-            if let reply = await piggyAgent.ask(text, as: toy.name) {
+            if let reply = await piggyAgent.ask(text, as: toy.name, settings: personaSettings) {
                 let syllables = max(8, min(28, reply.count / 4))
                 await animator.speak(syllables: syllables)
             }
         }
     }
+
 }
 
-/// Circular action button for toy interactions.
-private struct ActionButton: View {
-    let icon: String
-    let label: String
-    let action: () -> Void
+private struct PiggySetupSheet: View {
+    @Binding var settings: PiggyPersonaSettings
+    let onSave: () -> Void
+    @Environment(\.dismiss) private var dismiss
 
     var body: some View {
-        Button(action: action) {
-            VStack(spacing: 4) {
-                Image(systemName: icon)
-                    .font(.title2)
-                    .frame(width: 50, height: 50)
-                    .background(.ultraThinMaterial)
-                    .clipShape(Circle())
+        NavigationStack {
+            Form {
+                Section("Personality") {
+                    TextField("Playful, affectionate, curious...", text: $settings.personality)
+                }
 
-                Text(label)
-                    .font(.caption2)
-                    .foregroundStyle(.white.opacity(0.7))
+                Section("Age") {
+                    Picker("Age", selection: $settings.age) {
+                        ForEach(PiggyAgePreset.allCases) { age in
+                            Text(age.label).tag(age)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                }
+
+                Section("Voice") {
+                    Picker("Voice", selection: $settings.voice) {
+                        ForEach(PiggyVoicePreset.allCases) { voice in
+                            Text(voice.label).tag(voice)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                }
+            }
+            .navigationTitle("Piggy Setup")
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button("Close") { dismiss() }
+                }
+
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Save") {
+                        onSave()
+                        dismiss()
+                    }
+                }
             }
         }
-        .accessibilityAddTraits(.isButton)
     }
 }
