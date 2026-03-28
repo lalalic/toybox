@@ -60,7 +60,7 @@ final class PiggyVoiceInputService {
             inputNode.removeTap(onBus: 0)
             inputNode.installTap(onBus: 0, bufferSize: 1024, format: nil) { [weak self] buffer, _ in
                 request.append(buffer)
-                guard let self, let channelData = buffer.floatChannelData else { return }
+                guard let channelData = buffer.floatChannelData else { return }
                 let frames = Int(buffer.frameLength)
                 var sum: Float = 0
                 for i in 0..<frames {
@@ -70,24 +70,28 @@ final class PiggyVoiceInputService {
                 let rms = sqrt(sum / Float(max(frames, 1)))
                 let db = 20 * log10(max(rms, 1e-10))
                 let level = max(0, min(1, (db + 50) / 50))
-                Task { @MainActor in
-                    self.soundLevel = level
+                Task { @MainActor [weak self] in
+                    self?.soundLevel = level
                 }
             }
 
             recognitionTask = recognizer.recognitionTask(with: request) { [weak self] result, error in
-                guard let self else { return }
-                if let result {
-                    Task { @MainActor in
-                        self.transcribedText = result.bestTranscription.formattedString
-                        if result.isFinal {
+                let transcript = result?.bestTranscription.formattedString
+                let isFinal = result?.isFinal ?? false
+                let failureMessage = error?.localizedDescription
+
+                Task { @MainActor [weak self] in
+                    guard let self else { return }
+
+                    if let transcript {
+                        self.transcribedText = transcript
+                        if isFinal {
                             self.finishRecording(commitTranscript: true)
                         }
                     }
-                }
-                if error != nil {
-                    Task { @MainActor in
-                        self.errorMessage = error?.localizedDescription ?? "Speech recognition failed."
+
+                    if let failureMessage {
+                        self.errorMessage = failureMessage
                         self.finishRecording(commitTranscript: true)
                     }
                 }
