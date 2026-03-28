@@ -5,18 +5,20 @@ import os
 private let logger = Logger(subsystem: ToyboxConstants.subsystem, category: "PhotoCapture")
 
 /// Camera preview + photo capture for non-LiDAR devices.
-/// Takes multiple photos around an object for photogrammetry reconstruction.
+/// Auto-captures photos while the user slowly rotates the toy.
 struct PhotoCaptureView: View {
     @Environment(AppModel.self) var appModel
     let folderManager: CaptureFolderManager
 
     @State private var captureManager = CameraManager()
     @State private var photoCount = 0
+    @State private var isAutoCapturing = false
     @State private var showGuidance = true
     @State private var lastCaptureFlash = false
+    @State private var autoTask: Task<Void, Never>?
 
-    private let minimumPhotos = 20
-    private let recommendedPhotos = 40
+    private let targetPhotos = 30
+    private let captureInterval: Duration = .milliseconds(1500) // Auto-capture every 1.5s
 
     var body: some View {
         ZStack {
@@ -29,6 +31,7 @@ struct PhotoCaptureView: View {
                 // Top bar
                 HStack {
                     Button {
+                        stopAutoCapture()
                         appModel.returnHome()
                     } label: {
                         Image(systemName: "xmark.circle.fill")
@@ -38,69 +41,108 @@ struct PhotoCaptureView: View {
 
                     Spacer()
 
-                    // Photo counter
-                    Label("\(photoCount)", systemImage: "photo.stack")
-                        .font(.headline)
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 6)
-                        .background(.ultraThinMaterial, in: Capsule())
+                    // Photo counter badge
+                    HStack(spacing: 6) {
+                        if isAutoCapturing {
+                            Circle()
+                                .fill(.red)
+                                .frame(width: 10, height: 10)
+                        }
+                        Text("\(photoCount) photos")
+                            .font(.headline)
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 6)
+                    .background(.ultraThinMaterial, in: Capsule())
                 }
                 .padding()
 
                 Spacer()
 
-                // Guidance text
+                // Guidance or status
                 if showGuidance {
                     guidanceOverlay
+                        .transition(.opacity)
+                } else if isAutoCapturing {
+                    captureStatusOverlay
                         .transition(.opacity)
                 }
 
                 Spacer()
 
-                // Bottom controls
-                HStack(alignment: .center, spacing: 40) {
-                    // Photo count progress
-                    VStack(spacing: 4) {
-                        Text("\(photoCount)/\(recommendedPhotos)")
-                            .font(.caption)
-                            .fontWeight(.semibold)
-                        ProgressView(value: Double(photoCount), total: Double(recommendedPhotos))
-                            .frame(width: 60)
-                            .tint(photoCount >= minimumPhotos ? .green : .white)
-                    }
+                // Circular progress ring + controls
+                VStack(spacing: 16) {
+                    // Progress ring
+                    ZStack {
+                        Circle()
+                            .stroke(.white.opacity(0.3), lineWidth: 6)
+                            .frame(width: 100, height: 100)
+                        Circle()
+                            .trim(from: 0, to: CGFloat(min(photoCount, targetPhotos)) / CGFloat(targetPhotos))
+                            .stroke(photoCount >= targetPhotos ? .green : .white, style: StrokeStyle(lineWidth: 6, lineCap: .round))
+                            .frame(width: 100, height: 100)
+                            .rotationEffect(.degrees(-90))
+                            .animation(.easeInOut(duration: 0.3), value: photoCount)
 
-                    // Capture button
-                    Button {
-                        capturePhoto()
-                    } label: {
-                        ZStack {
-                            Circle()
-                                .fill(.white)
-                                .frame(width: 72, height: 72)
-                            Circle()
-                                .stroke(.white, lineWidth: 4)
-                                .frame(width: 80, height: 80)
+                        // Center button
+                        Button {
+                            if isAutoCapturing {
+                                stopAutoCapture()
+                            } else if photoCount >= targetPhotos {
+                                finishCapture()
+                            } else {
+                                startAutoCapture()
+                            }
+                        } label: {
+                            ZStack {
+                                if isAutoCapturing {
+                                    // Pause icon
+                                    RoundedRectangle(cornerRadius: 4)
+                                        .fill(.red)
+                                        .frame(width: 30, height: 30)
+                                } else if photoCount >= targetPhotos {
+                                    // Checkmark
+                                    Image(systemName: "checkmark")
+                                        .font(.system(size: 30, weight: .bold))
+                                        .foregroundStyle(.green)
+                                } else {
+                                    // Play icon
+                                    Image(systemName: "camera.fill")
+                                        .font(.system(size: 30))
+                                        .foregroundStyle(.white)
+                                }
+                            }
+                            .frame(width: 70, height: 70)
+                            .background(.ultraThinMaterial, in: Circle())
                         }
                     }
 
-                    // Done button (enabled after minimum photos)
-                    Button {
-                        finishCapture()
-                    } label: {
-                        Text("Done")
-                            .font(.headline)
-                            .foregroundStyle(photoCount >= minimumPhotos ? .white : .gray)
+                    // Status text
+                    if photoCount >= targetPhotos && !isAutoCapturing {
+                        Button("Build 3D Model") {
+                            finishCapture()
+                        }
+                        .font(.headline)
+                        .buttonStyle(.borderedProminent)
+                        .tint(.green)
+                    } else if isAutoCapturing {
+                        Text("Slowly rotate the toy...")
+                            .font(.subheadline)
+                            .foregroundStyle(.white)
+                    } else if photoCount > 0 {
+                        Text("Tap to continue • \(photoCount)/\(targetPhotos)")
+                            .font(.subheadline)
+                            .foregroundStyle(.white.opacity(0.8))
                     }
-                    .disabled(photoCount < minimumPhotos)
                 }
-                .padding(.bottom, 40)
+                .padding(.bottom, 50)
             }
 
             // Capture flash effect
             if lastCaptureFlash {
                 Color.white
                     .ignoresSafeArea()
-                    .opacity(0.3)
+                    .opacity(0.15)
                     .allowsHitTesting(false)
             }
         }
@@ -108,72 +150,96 @@ struct PhotoCaptureView: View {
             await captureManager.configure()
         }
         .onDisappear {
+            stopAutoCapture()
             captureManager.stop()
         }
     }
 
     private var guidanceOverlay: some View {
-        VStack(spacing: 12) {
+        VStack(spacing: 16) {
             Image(systemName: "rotate.3d")
-                .font(.system(size: 40))
+                .font(.system(size: 50))
                 .foregroundStyle(.white)
 
-            Text("Take Photos Around Your Toy")
-                .font(.title3)
+            Text("Auto-Capture Mode")
+                .font(.title2)
                 .fontWeight(.bold)
                 .foregroundStyle(.white)
 
-            VStack(alignment: .leading, spacing: 6) {
-                guidanceLine(icon: "camera.circle", text: "Take \(recommendedPhotos)+ photos from all angles")
-                guidanceLine(icon: "arrow.triangle.2.circlepath", text: "Move slowly around the object")
-                guidanceLine(icon: "light.max", text: "Even lighting, avoid shadows")
-                guidanceLine(icon: "hand.raised.slash", text: "Keep the toy still")
-            }
-            .font(.subheadline)
+            Text("Place your toy on a table.\nTap Start, then slowly rotate the toy.\nPhotos are taken automatically.")
+                .font(.body)
+                .foregroundStyle(.white.opacity(0.9))
+                .multilineTextAlignment(.center)
 
-            Button("Got it") {
+            Button {
                 withAnimation { showGuidance = false }
+                startAutoCapture()
+            } label: {
+                Label("Start Capturing", systemImage: "camera.fill")
+                    .font(.headline)
             }
-            .buttonStyle(.bordered)
+            .buttonStyle(.borderedProminent)
             .tint(.white)
-            .padding(.top, 4)
+            .foregroundStyle(.black)
+            .padding(.top, 8)
         }
         .padding(24)
         .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16))
         .padding(.horizontal, 32)
     }
 
-    private func guidanceLine(icon: String, text: String) -> some View {
-        HStack(spacing: 8) {
-            Image(systemName: icon)
-                .frame(width: 20)
-                .foregroundStyle(.white.opacity(0.8))
-            Text(text)
-                .foregroundStyle(.white)
+    private var captureStatusOverlay: some View {
+        VStack(spacing: 4) {
+            HStack(spacing: 8) {
+                Circle().fill(.red).frame(width: 8, height: 8)
+                Text("Auto-capturing...")
+                    .font(.subheadline)
+                    .fontWeight(.medium)
+            }
+            .foregroundStyle(.white)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 8)
+            .background(.ultraThinMaterial, in: Capsule())
         }
     }
 
-    private func capturePhoto() {
-        Task {
-            do {
-                let fileName = String(format: "IMG_%04d.heic", photoCount)
-                let outputURL = folderManager.imagesFolder.appendingPathComponent(fileName)
-                try await captureManager.capturePhoto(to: outputURL)
-                photoCount += 1
-                logger.info("Captured photo \(photoCount): \(fileName)")
+    private func startAutoCapture() {
+        guard !isAutoCapturing else { return }
+        isAutoCapturing = true
+        if showGuidance { withAnimation { showGuidance = false } }
 
-                // Flash effect
-                withAnimation(.easeOut(duration: 0.15)) { lastCaptureFlash = true }
-                try? await Task.sleep(for: .milliseconds(150))
-                withAnimation(.easeOut(duration: 0.15)) { lastCaptureFlash = false }
-
-                // Hide guidance after first capture
-                if showGuidance {
-                    withAnimation { showGuidance = false }
+        autoTask = Task {
+            while !Task.isCancelled && isAutoCapturing {
+                await captureOnePhoto()
+                if photoCount >= targetPhotos {
+                    stopAutoCapture()
+                    break
                 }
-            } catch {
-                logger.error("Photo capture failed: \(error)")
+                try? await Task.sleep(for: captureInterval)
             }
+        }
+    }
+
+    private func stopAutoCapture() {
+        isAutoCapturing = false
+        autoTask?.cancel()
+        autoTask = nil
+    }
+
+    private func captureOnePhoto() async {
+        do {
+            let fileName = String(format: "IMG_%04d.heic", photoCount)
+            let outputURL = folderManager.imagesFolder.appendingPathComponent(fileName)
+            try await captureManager.capturePhoto(to: outputURL)
+            photoCount += 1
+            logger.info("Auto-captured photo \(photoCount): \(fileName)")
+
+            // Subtle flash
+            withAnimation(.easeOut(duration: 0.1)) { lastCaptureFlash = true }
+            try? await Task.sleep(for: .milliseconds(100))
+            withAnimation(.easeOut(duration: 0.1)) { lastCaptureFlash = false }
+        } catch {
+            logger.error("Auto-capture failed: \(error)")
         }
     }
 
@@ -194,12 +260,26 @@ final class CameraManager: NSObject {
     private var pendingOutputURL: URL?
 
     func configure() async {
+        // Request camera authorization
+        let status = AVCaptureDevice.authorizationStatus(for: .video)
+        if status == .notDetermined {
+            let granted = await AVCaptureDevice.requestAccess(for: .video)
+            if !granted {
+                logger.error("Camera access denied by user")
+                return
+            }
+        } else if status != .authorized {
+            logger.error("Camera access not authorized: \(status.rawValue)")
+            return
+        }
+
         captureSession.beginConfiguration()
         captureSession.sessionPreset = .photo
 
         guard let camera = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .back),
               let input = try? AVCaptureDeviceInput(device: camera) else {
             logger.error("Failed to access camera")
+            captureSession.commitConfiguration()
             return
         }
 
@@ -213,7 +293,13 @@ final class CameraManager: NSObject {
         }
 
         captureSession.commitConfiguration()
-        captureSession.startRunning()
+
+        // Start running on background queue to avoid blocking main thread
+        nonisolated(unsafe) let session = captureSession
+        Task.detached { @Sendable in
+            session.startRunning()
+        }
+        logger.info("Camera configured and started")
     }
 
     func stop() {
@@ -288,24 +374,24 @@ enum CaptureError: Error, LocalizedError {
 struct CameraPreviewView: UIViewRepresentable {
     let session: AVCaptureSession
 
-    func makeUIView(context: Context) -> UIView {
-        let view = UIView(frame: .zero)
-        let previewLayer = AVCaptureVideoPreviewLayer(session: session)
-        previewLayer.videoGravity = .resizeAspectFill
-        view.layer.addSublayer(previewLayer)
-        context.coordinator.previewLayer = previewLayer
+    func makeUIView(context: Context) -> CameraPreviewUIView {
+        let view = CameraPreviewUIView()
+        view.previewLayer.session = session
+        view.previewLayer.videoGravity = .resizeAspectFill
         return view
     }
 
-    func updateUIView(_ uiView: UIView, context: Context) {
-        context.coordinator.previewLayer?.frame = uiView.bounds
+    func updateUIView(_ uiView: CameraPreviewUIView, context: Context) {
+        // Session is already set
+    }
+}
+
+class CameraPreviewUIView: UIView {
+    override class var layerClass: AnyClass {
+        AVCaptureVideoPreviewLayer.self
     }
 
-    func makeCoordinator() -> Coordinator {
-        Coordinator()
-    }
-
-    class Coordinator {
-        var previewLayer: AVCaptureVideoPreviewLayer?
+    var previewLayer: AVCaptureVideoPreviewLayer {
+        layer as! AVCaptureVideoPreviewLayer
     }
 }
