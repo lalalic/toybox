@@ -217,6 +217,8 @@ struct LivingToyView: View {
             HStack(spacing: 10) {
                 TextField("Ask Piggy something", text: $agentInput)
                     .textFieldStyle(.roundedBorder)
+                    .submitLabel(.send)
+                    .onSubmit(sendToPiggy)
                     .disabled(piggyAgent.isThinking)
 
                 Button {
