@@ -131,6 +131,13 @@ final class PiggyAgentService {
 
 	private func speak(_ text: String) {
 		guard !text.isEmpty else { return }
+		do {
+			let audioSession = AVAudioSession.sharedInstance()
+			try audioSession.setCategory(.playback, mode: .spokenAudio, options: [.duckOthers, .defaultToSpeaker])
+			try audioSession.setActive(true)
+		} catch {
+			piggyAgentLogger.error("Failed to configure audio session: \(error.localizedDescription)")
+		}
 		speaker.stopSpeaking(at: .immediate)
 		let utterance = AVSpeechUtterance(string: text)
 		utterance.voice = AVSpeechSynthesisVoice(language: "en-US")
