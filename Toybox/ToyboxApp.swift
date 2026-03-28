@@ -18,6 +18,11 @@ struct ToyboxApp: App {
                 .environment(appModel)
                 .task {
                     startMCPServer()
+                    // Auto-open first toy with model
+                    if let toy = appModel.toyStore.toys.first(where: { $0.modelFileName != nil }) {
+                        appModel.currentToy = toy
+                        appModel.state = .viewing
+                    }
                 }
         }
     }

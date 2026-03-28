@@ -39,13 +39,23 @@ guard imageFiles.count >= 3 else {
 let outputDir = outputURL.deletingLastPathComponent()
 try? fm.createDirectory(at: outputDir, withIntermediateDirectories: true)
 
+let detailStr = CommandLine.arguments.count >= 4 ? CommandLine.arguments[3] : "reduced"
+let detail: PhotogrammetrySession.Request.Detail
+switch detailStr {
+case "medium": detail = .medium
+case "full": detail = .full
+case "raw": detail = .raw
+default: detail = .reduced
+}
+print("Detail level: \(detailStr)")
+
 print("Creating PhotogrammetrySession...")
 do {
     let session = try PhotogrammetrySession(input: inputURL)
     print("Session created, starting reconstruction...")
 
     try session.process(requests: [
-        .modelFile(url: outputURL, detail: .reduced)
+        .modelFile(url: outputURL, detail: detail)
     ])
 
     // Monitor outputs

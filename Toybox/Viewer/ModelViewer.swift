@@ -4,7 +4,7 @@ import os
 
 private let logger = Logger(subsystem: ToyboxConstants.subsystem, category: "ModelViewer")
 
-/// Interactive 3D model viewer using RealityKit.
+/// Interactive 3D model viewer using RealityKit with orbit gestures.
 struct ModelViewer: View {
     let modelURL: URL
     let toyName: String
@@ -14,6 +14,13 @@ struct ModelViewer: View {
     @State private var isLoading = true
     @State private var loadError: String?
 
+    // Orbit camera state
+    @State private var yaw: Float = 0       // Horizontal rotation (radians)
+    @State private var pitch: Float = 0.3   // Vertical tilt (radians)
+    @State private var distance: Float = 0.5 // Camera distance
+    @State private var modelEntity: ModelEntity?
+    @State private var pivotEntity: Entity?
+
     var body: some View {
         ZStack {
             // RealityKit 3D view
@@ -21,23 +28,29 @@ struct ModelViewer: View {
                 do {
                     let entity = try await ModelEntity(contentsOf: modelURL)
 
-                    // Center and scale the model
+                    // Calculate bounds and normalize scale
                     let bounds = entity.visualBounds(relativeTo: nil)
                     let extent = bounds.extents
                     let maxExtent = max(extent.x, max(extent.y, extent.z))
-                    let scale = 0.3 / maxExtent  // Normalize to ~30cm
+                    let scale = 0.3 / maxExtent
+
+                    // Create a pivot entity for orbit rotation
+                    let pivot = Entity()
                     entity.scale = SIMD3<Float>(repeating: scale)
+                    entity.position = -bounds.center * scale
+                    pivot.addChild(entity)
 
-                    // Center the model
-                    let center = bounds.center
-                    entity.position = -center * scale
-
-                    // Add to an anchor
                     let anchor = AnchorEntity()
-                    anchor.addChild(entity)
+                    anchor.addChild(pivot)
                     content.add(anchor)
 
-                    logger.info("Loaded model: \(self.modelURL.lastPathComponent)")
+                    modelEntity = entity
+                    pivotEntity = pivot
+
+                    // Apply initial rotation
+                    updateRotation()
+
+                    logger.info("Loaded model: \(self.modelURL.lastPathComponent), bounds: \(extent)")
                     isLoading = false
                 } catch {
                     logger.error("Failed to load model: \(error)")
@@ -45,12 +58,8 @@ struct ModelViewer: View {
                     isLoading = false
                 }
             }
-            .gesture(
-                DragGesture()
-                    .onChanged { _ in
-                        // Rotation gesture handled by RealityView natively
-                    }
-            )
+            .gesture(dragGesture)
+            .gesture(magnifyGesture)
 
             // Overlay UI
             VStack {
@@ -83,6 +92,12 @@ struct ModelViewer: View {
                 .padding()
 
                 Spacer()
+
+                // Gesture hints
+                Text("Drag to rotate · Pinch to zoom")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .padding(.bottom, 8)
             }
 
             // Loading / Error states
@@ -106,5 +121,38 @@ struct ModelViewer: View {
                 .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12))
             }
         }
+    }
+
+    // MARK: - Gestures
+
+    private var dragGesture: some Gesture {
+        DragGesture()
+            .onChanged { value in
+                let sensitivity: Float = 0.01
+                yaw += Float(value.translation.width) * sensitivity
+                pitch += Float(value.translation.height) * sensitivity
+                // Clamp pitch to avoid flipping
+                pitch = max(-.pi / 2 + 0.1, min(.pi / 2 - 0.1, pitch))
+                updateRotation()
+            }
+    }
+
+    private var magnifyGesture: some Gesture {
+        MagnifyGesture()
+            .onChanged { value in
+                let newDist = distance / Float(value.magnification)
+                distance = max(0.1, min(2.0, newDist))
+                updateRotation()
+            }
+    }
+
+    private func updateRotation() {
+        guard let pivot = pivotEntity else { return }
+        // Apply yaw (around Y) then pitch (around X)
+        let yawQ = simd_quatf(angle: yaw, axis: SIMD3<Float>(0, 1, 0))
+        let pitchQ = simd_quatf(angle: pitch, axis: SIMD3<Float>(1, 0, 0))
+        pivot.orientation = yawQ * pitchQ
+        // Scale as zoom
+        pivot.scale = SIMD3<Float>(repeating: distance / 0.5)
     }
 }
