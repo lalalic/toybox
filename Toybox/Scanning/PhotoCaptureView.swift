@@ -17,8 +17,8 @@ struct PhotoCaptureView: View {
     @State private var lastCaptureFlash = false
     @State private var autoTask: Task<Void, Never>?
 
-    private let targetPhotos = 30
-    private let captureInterval: Duration = .milliseconds(1500) // Auto-capture every 1.5s
+    private let targetPhotos = 36
+    private let captureInterval: Duration = .milliseconds(2500)
 
     var body: some View {
         ZStack {
@@ -126,7 +126,7 @@ struct PhotoCaptureView: View {
                         .buttonStyle(.borderedProminent)
                         .tint(.green)
                     } else if isAutoCapturing {
-                        Text("Slowly rotate the toy...")
+                        Text(captureStage.title)
                             .font(.subheadline)
                             .foregroundStyle(.white)
                     } else if photoCount > 0 {
@@ -166,10 +166,19 @@ struct PhotoCaptureView: View {
                 .fontWeight(.bold)
                 .foregroundStyle(.white)
 
-            Text("Place your toy on a table.\nTap Start, then slowly rotate the toy.\nPhotos are taken automatically.")
+            Text("Place your toy on a plain table in bright light.\nAfter each flash, rotate only a little.\nDo one full circle, then a slightly higher circle for the top and back.")
                 .font(.body)
                 .foregroundStyle(.white.opacity(0.9))
                 .multilineTextAlignment(.center)
+
+            VStack(alignment: .leading, spacing: 6) {
+                Label("36 photos total", systemImage: "square.stack.3d.up")
+                Label("One shot every 2.5 seconds", systemImage: "timer")
+                Label("Keep Piggy centered and fully visible", systemImage: "viewfinder")
+            }
+            .font(.caption)
+            .foregroundStyle(.white.opacity(0.85))
+            .frame(maxWidth: .infinity, alignment: .leading)
 
             Button {
                 withAnimation { showGuidance = false }
@@ -189,7 +198,7 @@ struct PhotoCaptureView: View {
     }
 
     private var captureStatusOverlay: some View {
-        VStack(spacing: 4) {
+        VStack(spacing: 10) {
             HStack(spacing: 8) {
                 Circle().fill(.red).frame(width: 8, height: 8)
                 Text("Auto-capturing...")
@@ -200,6 +209,41 @@ struct PhotoCaptureView: View {
             .padding(.horizontal, 16)
             .padding(.vertical, 8)
             .background(.ultraThinMaterial, in: Capsule())
+
+            VStack(spacing: 4) {
+                Text(captureStage.title)
+                    .font(.headline)
+                    .foregroundStyle(.white)
+
+                Text(captureStage.message)
+                    .font(.caption)
+                    .foregroundStyle(.white.opacity(0.85))
+                    .multilineTextAlignment(.center)
+
+                Text("\(max(targetPhotos - photoCount, 0)) photos left")
+                    .font(.caption2)
+                    .foregroundStyle(.white.opacity(0.7))
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
+            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16))
+        }
+    }
+
+    private var captureStage: (title: String, message: String) {
+        let progress = Double(photoCount) / Double(targetPhotos)
+
+        switch progress {
+        case ..<0.2:
+            return ("Front arc", "Keep the phone level. Rotate Piggy a small step after each flash.")
+        case ..<0.4:
+            return ("Left side", "Continue the circle. Avoid big jumps so adjacent photos overlap.")
+        case ..<0.6:
+            return ("Back arc", "Slow down here and make sure the back of the head is visible.")
+        case ..<0.8:
+            return ("Right side", "Finish the level circle and keep Piggy filling most of the frame.")
+        default:
+            return ("High pass", "Raise the phone slightly and do another partial circle to capture the top and back.")
         }
     }
 
@@ -287,6 +331,25 @@ final class CameraManager: NSObject {
             captureSession.addInput(input)
         }
 
+        do {
+            try camera.lockForConfiguration()
+            if camera.isFocusModeSupported(.continuousAutoFocus) {
+                camera.focusMode = .continuousAutoFocus
+            }
+            if camera.isAutoFocusRangeRestrictionSupported {
+                camera.autoFocusRangeRestriction = .near
+            }
+            if camera.isExposureModeSupported(.continuousAutoExposure) {
+                camera.exposureMode = .continuousAutoExposure
+            }
+            if camera.isWhiteBalanceModeSupported(.continuousAutoWhiteBalance) {
+                camera.whiteBalanceMode = .continuousAutoWhiteBalance
+            }
+            camera.unlockForConfiguration()
+        } catch {
+            logger.error("Failed to configure camera focus/exposure: \(error)")
+        }
+
         if captureSession.canAddOutput(photoOutput) {
             captureSession.addOutput(photoOutput)
             photoOutput.maxPhotoQualityPrioritization = .quality
@@ -309,10 +372,14 @@ final class CameraManager: NSObject {
     func capturePhoto(to url: URL) async throws {
         pendingOutputURL = url
         let settings = AVCapturePhotoSettings()
+        settings.photoQualityPrioritization = .quality
+        settings.isAutoStillImageStabilizationEnabled = true
 
         // Use HEIC if available
         if photoOutput.availablePhotoCodecTypes.contains(.hevc) {
             let heicSettings = AVCapturePhotoSettings(format: [AVVideoCodecKey: AVVideoCodecType.hevc])
+            heicSettings.photoQualityPrioritization = .quality
+            heicSettings.isAutoStillImageStabilizationEnabled = true
             return try await withCheckedThrowingContinuation { cont in
                 self.continuation = cont
                 photoOutput.capturePhoto(with: heicSettings, delegate: self)
