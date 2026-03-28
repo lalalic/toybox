@@ -81,6 +81,7 @@
 			);
 			name = Toybox;
 			packageProductDependencies = (
+				TB000060 /* AppAgent */,
 			);
 			productName = Toybox;
 			productReference = TB000001 /* Toybox.app */;
@@ -113,6 +114,9 @@
 			preferredProjectObjectVersion = 77;
 			productRefGroup = TB000021 /* Products */;
 			projectDirPath = "";
+			packageReferences = (
+				TB000061 /* XCLocalSwiftPackageReference "AppAgent" */,
+			);
 			projectRoot = "";
 			targets = (
 				TB000002 /* Toybox */,
@@ -347,6 +351,20 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCLocalSwiftPackageReference section */
+		TB000061 /* XCLocalSwiftPackageReference "AppAgent" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = ../copilot-ios/AppAgent;
+		};
+/* End XCLocalSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		TB000060 /* AppAgent */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = AppAgent;
+		};
+/* End XCSwiftPackageProductDependency section */
 
 	};
 	rootObject = TB000030 /* Project object */;
