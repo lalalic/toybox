@@ -24,11 +24,9 @@ final class PiggyVoiceInputService {
         guard AVAudioApplication.shared.recordPermission == .granted else {
             AVAudioApplication.requestRecordPermission { granted in
                 Task { @MainActor [weak self] in
-                    if granted {
-                        self?.startRecording()
-                    } else {
-                        self?.errorMessage = "Microphone permission is required."
-                    }
+                    self?.errorMessage = granted
+                        ? "Microphone access approved. Tap the mic again to talk to Piggy."
+                        : "Microphone permission is required."
                 }
             }
             return
@@ -37,11 +35,9 @@ final class PiggyVoiceInputService {
         guard SFSpeechRecognizer.authorizationStatus() == .authorized else {
             SFSpeechRecognizer.requestAuthorization { status in
                 Task { @MainActor [weak self] in
-                    if status == .authorized {
-                        self?.startRecording()
-                    } else {
-                        self?.errorMessage = "Speech recognition permission is required."
-                    }
+                    self?.errorMessage = status == .authorized
+                        ? "Speech access approved. Tap the mic again to talk to Piggy."
+                        : "Speech recognition permission is required."
                 }
             }
             return
