@@ -265,6 +265,7 @@ struct LivingToyView: View {
     }
 
     private func toggleVoiceInput() {
+        print("[LivingToy] toggleVoiceInput – isRecording=\(voiceInput.isRecording) isThinking=\(piggyAgent.isThinking)")
         if voiceInput.isRecording {
             voiceInput.stopRecordingAndSubmit()
         } else {

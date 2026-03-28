@@ -18,7 +18,11 @@ final class PiggyVoiceInputService {
     @ObservationIgnored private let speechRecognizer = SFSpeechRecognizer(locale: Locale(identifier: "en-US"))
 
     func startRecording() {
-        guard !isRecording, !isStarting else { return }
+        print("[PiggyVoice] startRecording called – isRecording=\(isRecording) isStarting=\(isStarting)")
+        guard !isRecording, !isStarting else {
+            print("[PiggyVoice] GUARD blocked – isRecording=\(isRecording) isStarting=\(isStarting)")
+            return
+        }
         isStarting = true
         finalTranscript = nil
         transcribedText = ""
@@ -66,8 +70,11 @@ final class PiggyVoiceInputService {
 
             let inputNode = engine.inputNode
             inputNode.removeTap(onBus: 0)
-            inputNode.installTap(onBus: 0, bufferSize: 1024, format: inputNode.outputFormat(forBus: 0)) { buffer, _ in
-                request.append(buffer)
+            // nonisolated(unsafe) + @Sendable breaks MainActor isolation for audio tap.
+            // SFSpeechAudioBufferRecognitionRequest.append() is designed for the audio thread.
+            nonisolated(unsafe) let audioRequest = request
+            inputNode.installTap(onBus: 0, bufferSize: 1024, format: inputNode.outputFormat(forBus: 0)) { @Sendable buffer, _ in
+                audioRequest.append(buffer)
             }
 
             recognitionTask = recognizer.recognitionTask(with: request) { [weak self] result, error in
@@ -97,8 +104,10 @@ final class PiggyVoiceInputService {
             recognitionRequest = request
             isRecording = true
             isStarting = false
+            print("[PiggyVoice] ✅ Recording started successfully")
         } catch {
             isStarting = false
+            print("[PiggyVoice] ❌ startRecording error: \(error)")
             errorMessage = error.localizedDescription
             finishRecording(commitTranscript: false)
         }

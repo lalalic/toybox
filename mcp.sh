@@ -2,7 +2,7 @@
 # Helper to call Toybox AppAgent MCP
 # Usage: ./mcp.sh snapshot | ./mcp.sh tap r3 | ./mcp.sh screenshot
 
-DEVICE_IP="[fd23:dcd5:a8c0::1]"
+DEVICE_IP="[fd03:9b8f:6d6f::1]"
 PORT=9223
 MCP_URL="http://${DEVICE_IP}:${PORT}/mcp"
 
