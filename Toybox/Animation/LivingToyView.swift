@@ -15,12 +15,16 @@ struct LivingToyView: View {
     @State private var isLoaded = false
     @State private var showControls = true
     @State private var pivotEntity: Entity?
+    @State private var piggyAgent = PiggyAgentService()
+    @State private var agentInput = ""
 
     // Orbit state
     @State private var yaw: Float = 0
     @State private var pitch: Float = 0.2
     @State private var dragStartYaw: Float = 0
     @State private var dragStartPitch: Float = 0
+    @State private var cameraDistance: Float = 1.0
+    @State private var pinchStartDistance: Float = 1.0
 
     var body: some View {
         ZStack {
@@ -73,6 +77,17 @@ struct LivingToyView: View {
                         dragStartPitch = pitch
                     }
             )
+            .gesture(
+                MagnifyGesture()
+                    .onChanged { value in
+                        let ratio = Float(value.magnification)
+                        cameraDistance = max(0.3, min(5.0, pinchStartDistance * ratio))
+                        updateZoom()
+                    }
+                    .onEnded { _ in
+                        pinchStartDistance = cameraDistance
+                    }
+            )
 
             // UI overlay
             if showControls {
@@ -103,6 +118,9 @@ struct LivingToyView: View {
                     .padding()
 
                     Spacer()
+
+                    piggyChatPanel
+                        .padding(.horizontal)
 
                     // Action buttons
                     HStack(spacing: 20) {
@@ -144,6 +162,9 @@ struct LivingToyView: View {
                 .transition(.opacity)
             }
         }
+        .onDisappear {
+            piggyAgent.disconnect()
+        }
     }
 
     private func updateRotation() {
@@ -151,6 +172,78 @@ struct LivingToyView: View {
         let yawQ = simd_quatf(angle: yaw, axis: SIMD3<Float>(0, 1, 0))
         let pitchQ = simd_quatf(angle: pitch, axis: SIMD3<Float>(1, 0, 0))
         pivot.orientation = yawQ * pitchQ
+    }
+
+    private func updateZoom() {
+        guard let pivot = pivotEntity else { return }
+        pivot.scale = SIMD3<Float>(repeating: cameraDistance)
+    }
+
+    private var piggyChatPanel: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Label(
+                    piggyAgent.isConnected ? "Piggy agent online" : "Piggy agent",
+                    systemImage: piggyAgent.isConnected ? "brain.filled.head.profile" : "brain"
+                )
+                .font(.caption)
+                .foregroundStyle(.white.opacity(0.85))
+
+                Spacer()
+
+                if piggyAgent.isThinking {
+                    ProgressView()
+                        .tint(.white)
+                        .scaleEffect(0.8)
+                }
+            }
+
+            if !piggyAgent.lastReply.isEmpty {
+                Text(piggyAgent.lastReply)
+                    .font(.subheadline)
+                    .foregroundStyle(.white)
+                    .padding(12)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 14))
+            } else if let error = piggyAgent.lastError {
+                Text(error)
+                    .font(.caption)
+                    .foregroundStyle(.red.opacity(0.9))
+                    .padding(12)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 14))
+            }
+
+            HStack(spacing: 10) {
+                TextField("Ask Piggy something", text: $agentInput)
+                    .textFieldStyle(.roundedBorder)
+                    .disabled(piggyAgent.isThinking)
+
+                Button {
+                    sendToPiggy()
+                } label: {
+                    Image(systemName: "paperplane.fill")
+                        .font(.headline)
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(agentInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || piggyAgent.isThinking)
+            }
+        }
+        .padding(14)
+        .background(.black.opacity(0.28), in: RoundedRectangle(cornerRadius: 18))
+    }
+
+    private func sendToPiggy() {
+        let text = agentInput.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return }
+        agentInput = ""
+
+        Task {
+            if let reply = await piggyAgent.ask(text, as: toy.name) {
+                let syllables = max(8, min(28, reply.count / 4))
+                await animator.speak(syllables: syllables)
+            }
+        }
     }
 }
 
