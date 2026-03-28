@@ -8,6 +8,7 @@ private let logger = Logger(subsystem: ToyboxConstants.subsystem, category: "Mod
 struct ModelViewer: View {
     let modelURL: URL
     let toyName: String
+    var onAnnotate: (() -> Void)?
     var onDone: (() -> Void)?
 
     @State private var isLoading = true
@@ -62,6 +63,15 @@ struct ModelViewer: View {
                         .background(.ultraThinMaterial, in: Capsule())
 
                     Spacer()
+
+                    if let onAnnotate {
+                        Button {
+                            onAnnotate()
+                        } label: {
+                            Label("Mark Features", systemImage: "hand.point.up.left.fill")
+                        }
+                        .buttonStyle(.bordered)
+                    }
 
                     if let onDone {
                         Button("Done") {

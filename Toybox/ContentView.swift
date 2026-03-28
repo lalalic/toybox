@@ -33,11 +33,24 @@ struct ContentView: View {
             case .viewing:
                 if let toy = appModel.currentToy,
                    let url = appModel.toyStore.modelURL(for: toy) {
-                    ModelViewer(modelURL: url, toyName: toy.name) {
+                    ModelViewer(modelURL: url, toyName: toy.name, onAnnotate: {
+                        appModel.startAnnotating()
+                    }) {
                         appModel.returnHome()
                     }
                 } else {
                     errorView("Model not found")
+                }
+
+            case .annotating:
+                if var toy = appModel.currentToy,
+                   let url = appModel.toyStore.modelURL(for: toy) {
+                    AnnotationView(modelURL: url, toy: Binding(
+                        get: { appModel.currentToy ?? toy },
+                        set: { appModel.currentToy = $0 }
+                    ))
+                } else {
+                    errorView("Model not found for annotation")
                 }
 
             case .failed(let message):

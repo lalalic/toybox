@@ -15,6 +15,7 @@ final class AppModel {
         case scanning       // ObjectCaptureSession active
         case reconstructing // PhotogrammetrySession processing
         case viewing        // Showing reconstructed model
+        case annotating     // Marking features on model
         case failed(String) // Error state
     }
 
@@ -56,6 +57,15 @@ final class AppModel {
         currentToy = toy
         state = .viewing
         logger.info("Reconstruction complete: \(modelFileName)")
+    }
+
+    func startAnnotating() {
+        state = .annotating
+    }
+
+    func annotateToy(_ toy: ToyModel) {
+        currentToy = toy
+        state = .annotating
     }
 
     func returnHome() {

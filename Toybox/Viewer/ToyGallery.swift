@@ -99,6 +99,19 @@ struct ToyGallery: View {
                     ToyCard(toy: toy) {
                         selectedToy = toy
                     }
+                    .contextMenu {
+                        Button {
+                            appModel.annotateToy(toy)
+                        } label: {
+                            Label("Mark Features", systemImage: "hand.point.up.left.fill")
+                        }
+
+                        Button(role: .destructive) {
+                            appModel.toyStore.delete(toy)
+                        } label: {
+                            Label("Delete", systemImage: "trash")
+                        }
+                    }
                 }
             }
             .padding()
