@@ -1,4 +1,5 @@
 import SwiftUI
+import UniformTypeIdentifiers
 import os
 
 private let logger = Logger(subsystem: ToyboxConstants.subsystem, category: "ToyGallery")
@@ -7,6 +8,7 @@ private let logger = Logger(subsystem: ToyboxConstants.subsystem, category: "Toy
 struct ToyGallery: View {
     @Environment(AppModel.self) var appModel
     @State private var showNewScanSheet = false
+    @State private var showImportPicker = false
     @State private var newToyName = ""
     @State private var selectedToy: ToyModel?
 
@@ -27,21 +29,44 @@ struct ToyGallery: View {
             .navigationTitle("Toybox")
             .toolbar {
                 ToolbarItem(placement: .primaryAction) {
-                    Button {
-                        showNewScanSheet = true
+                    Menu {
+                        if appModel.isScanningSupported {
+                            Button {
+                                showNewScanSheet = true
+                            } label: {
+                                Label("Scan New Toy", systemImage: "camera.viewfinder")
+                            }
+                        }
+
+                        Button {
+                            showImportPicker = true
+                        } label: {
+                            Label("Import USDZ", systemImage: "square.and.arrow.down")
+                        }
                     } label: {
                         Image(systemName: "plus.circle.fill")
                             .font(.title2)
                     }
-                    .disabled(!appModel.isScanningSupported)
                 }
             }
             .sheet(isPresented: $showNewScanSheet) {
                 newScanSheet
             }
+            .fileImporter(
+                isPresented: $showImportPicker,
+                allowedContentTypes: [UTType(filenameExtension: "usdz")!],
+                allowsMultipleSelection: false
+            ) { result in
+                handleImport(result)
+            }
             .fullScreenCover(item: $selectedToy) { toy in
                 if let url = appModel.toyStore.modelURL(for: toy) {
-                    ModelViewer(modelURL: url, toyName: toy.name) {
+                    ModelViewer(modelURL: url, toyName: toy.name, onAnnotate: {
+                        selectedToy = nil
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                            appModel.annotateToy(toy)
+                        }
+                    }) {
                         selectedToy = nil
                     }
                 }
@@ -88,6 +113,16 @@ struct ToyGallery: View {
                 .padding()
                 .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12))
             }
+
+            // Import option always available
+            Button {
+                showImportPicker = true
+            } label: {
+                Label("Import USDZ Model", systemImage: "square.and.arrow.down")
+                    .font(.subheadline)
+            }
+            .buttonStyle(.bordered)
+            .padding(.top, 8)
         }
         .padding()
     }
@@ -164,6 +199,49 @@ struct ToyGallery: View {
             }
         }
         .presentationDetents([.medium])
+    }
+
+    // MARK: - Import Handler
+
+    private func handleImport(_ result: Result<[URL], Error>) {
+        switch result {
+        case .success(let urls):
+            guard let sourceURL = urls.first else { return }
+
+            // Get file name without extension as toy name
+            let name = sourceURL.deletingPathExtension().lastPathComponent
+
+            // Create toy
+            var toy = ToyModel(name: name)
+            let modelFileName = "model.usdz"
+            toy.modelFileName = modelFileName
+
+            // Create directory and copy file
+            let toyDir = URL.documentsDirectory.appendingPathComponent(toy.directoryName)
+            let modelsDir = toyDir.appendingPathComponent("Models")
+
+            do {
+                try FileManager.default.createDirectory(at: modelsDir, withIntermediateDirectories: true)
+
+                // Start security-scoped access
+                guard sourceURL.startAccessingSecurityScopedResource() else {
+                    logger.error("Failed to access security-scoped resource")
+                    return
+                }
+                defer { sourceURL.stopAccessingSecurityScopedResource() }
+
+                let destURL = modelsDir.appendingPathComponent(modelFileName)
+                try FileManager.default.copyItem(at: sourceURL, to: destURL)
+
+                appModel.toyStore.add(toy)
+                logger.info("Imported toy: \(name) from \(sourceURL.lastPathComponent)")
+            } catch {
+                logger.error("Import failed: \(error)")
+            }
+
+        case .failure(let error):
+            logger.error("File picker failed: \(error)")
+        }
     }
 }
 
