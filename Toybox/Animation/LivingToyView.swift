@@ -19,7 +19,6 @@ struct LivingToyView: View {
     @State private var voiceInput = PiggyVoiceInputService()
     @State private var personaSettings = PiggyPersonaSettingsStore.shared.load()
     @State private var showSetup = false
-    @State private var agentInput = ""
 
     // Orbit state
     @State private var yaw: Float = 0
@@ -147,7 +146,6 @@ struct LivingToyView: View {
         }
         .onChange(of: voiceInput.finalTranscript) { _, transcript in
             guard let transcript, !transcript.isEmpty else { return }
-            agentInput = transcript
             sendToPiggy(transcript)
         }
         .onChange(of: piggyAgent.pendingGesture) { _, gesture in
@@ -235,32 +233,32 @@ struct LivingToyView: View {
                     .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 14))
             }
 
-            HStack(spacing: 10) {
-                TextField("Ask Piggy something", text: $agentInput)
-                    .textFieldStyle(.roundedBorder)
-                    .submitLabel(.send)
-                    .onSubmit(sendToPiggy)
-                    .disabled(piggyAgent.isThinking || voiceInput.isRecording)
+            Button {
+                toggleVoiceInput()
+            } label: {
+                HStack(spacing: 10) {
+                    Image(systemName: voiceInput.isRecording ? "stop.circle.fill" : "mic.circle.fill")
+                        .font(.title2)
 
-                Button {
-                    toggleVoiceInput()
-                } label: {
-                    Image(systemName: voiceInput.isRecording ? "stop.fill" : "mic.fill")
-                        .font(.headline)
-                }
-                .buttonStyle(.bordered)
-                .tint(voiceInput.isRecording ? .red : .white)
-                .disabled(piggyAgent.isThinking)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(voiceInput.isRecording ? "Tap to stop" : "Tap to talk")
+                            .font(.headline)
 
-                Button {
-                    sendToPiggy()
-                } label: {
-                    Image(systemName: "paperplane.fill")
-                        .font(.headline)
+                        Text(piggyAgent.isThinking ? "Piggy is thinking..." : "Speech only")
+                            .font(.caption)
+                            .foregroundStyle(.white.opacity(0.75))
+                    }
+
+                    Spacer()
                 }
-                .buttonStyle(.borderedProminent)
-                .disabled(agentInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || piggyAgent.isThinking)
+                .foregroundStyle(.white)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 14)
+                .frame(maxWidth: .infinity)
             }
+            .buttonStyle(.borderedProminent)
+            .tint(voiceInput.isRecording ? .red : .pink)
+            .disabled(piggyAgent.isThinking)
         }
         .padding(14)
         .background(.black.opacity(0.28), in: RoundedRectangle(cornerRadius: 18))
@@ -306,14 +304,9 @@ struct LivingToyView: View {
         }
     }
 
-    private func sendToPiggy() {
-        sendToPiggy(agentInput)
-    }
-
     private func sendToPiggy(_ message: String) {
         let text = message.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
-        agentInput = ""
 
         Task {
             if let reply = await piggyAgent.ask(text, as: toy.name, settings: personaSettings) {
