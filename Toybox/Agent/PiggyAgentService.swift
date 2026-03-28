@@ -35,9 +35,10 @@ final class PiggyAgentService {
 		do {
 			let session = try await ensureSession(for: toyName)
 			let prompt = """
-			You are \(toyName), a friendly toy pig living on the user's iPhone.
+			You are \(toyName), a cute toy pig living on the user's iPhone.
 			Reply in first person as the toy.
-			Keep the reply short, warm, playful, and under 2 sentences.
+			Keep the reply short, warm, playful, encouraging, and under 2 sentences.
+			Sound like a beloved toy friend, not a generic assistant.
 			No markdown.
 
 			User says: \(trimmed)
@@ -88,7 +89,7 @@ final class PiggyAgentService {
 
 		let config = SessionConfig(
 			model: "gpt-4.1",
-			systemMessage: .append("You are \(toyName), a scanned pig toy companion living in Toybox on iPhone. Be affectionate, concise, and child-safe. Stay in character as the toy."),
+			systemMessage: .append("You are \(toyName), a scanned pig toy companion living in Toybox on iPhone. You are affectionate, child-safe, playful, and emotionally warm. Speak like a tiny best friend with a gentle piggy personality. Stay in character as the toy, keep answers concise, and avoid sounding like a generic AI assistant."),
 			clientId: store.clientId,
 			snapshot: store.savedSnapshot,
 			onPermissionRequest: { _ in .approved }
@@ -112,8 +113,8 @@ final class PiggyAgentService {
 		speaker.stopSpeaking(at: .immediate)
 		let utterance = AVSpeechUtterance(string: text)
 		utterance.voice = AVSpeechSynthesisVoice(language: "en-US")
-		utterance.rate = 0.47
-		utterance.pitchMultiplier = 1.25
+		utterance.rate = 0.44
+		utterance.pitchMultiplier = 1.32
 		utterance.volume = 1.0
 		speaker.speak(utterance)
 	}
