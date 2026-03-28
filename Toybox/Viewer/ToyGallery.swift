@@ -1,0 +1,179 @@
+import SwiftUI
+import os
+
+private let logger = Logger(subsystem: ToyboxConstants.subsystem, category: "ToyGallery")
+
+/// Grid view showing all scanned toys.
+struct ToyGallery: View {
+    @Environment(AppModel.self) var appModel
+    @State private var showNewScanSheet = false
+    @State private var newToyName = ""
+    @State private var selectedToy: ToyModel?
+
+    private let columns = [
+        GridItem(.flexible(), spacing: 16),
+        GridItem(.flexible(), spacing: 16),
+    ]
+
+    var body: some View {
+        NavigationStack {
+            Group {
+                if appModel.toyStore.toys.isEmpty {
+                    emptyState
+                } else {
+                    toyGrid
+                }
+            }
+            .navigationTitle("Toybox")
+            .toolbar {
+                ToolbarItem(placement: .primaryAction) {
+                    Button {
+                        showNewScanSheet = true
+                    } label: {
+                        Image(systemName: "plus.circle.fill")
+                            .font(.title2)
+                    }
+                    .disabled(!appModel.isScanningSupported)
+                }
+            }
+            .sheet(isPresented: $showNewScanSheet) {
+                newScanSheet
+            }
+            .fullScreenCover(item: $selectedToy) { toy in
+                if let url = appModel.toyStore.modelURL(for: toy) {
+                    ModelViewer(modelURL: url, toyName: toy.name) {
+                        selectedToy = nil
+                    }
+                }
+            }
+        }
+    }
+
+    private var emptyState: some View {
+        VStack(spacing: 20) {
+            Image(systemName: "cube.transparent")
+                .font(.system(size: 80))
+                .foregroundStyle(.secondary)
+
+            Text("No Toys Yet")
+                .font(.title2)
+                .fontWeight(.bold)
+
+            Text("Scan your favorite toy to bring it to life!")
+                .font(.body)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+
+            if appModel.isScanningSupported {
+                Button {
+                    showNewScanSheet = true
+                } label: {
+                    Label("Scan a Toy", systemImage: "camera.viewfinder")
+                        .font(.headline)
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.large)
+            } else {
+                VStack(spacing: 8) {
+                    Image(systemName: "sensor.tag.radiowaves.forward")
+                        .font(.title)
+                        .foregroundStyle(.orange)
+                    Text("LiDAR Required")
+                        .font(.headline)
+                    Text("3D scanning needs a device with LiDAR sensor.\nYou can still view toys scanned on another device.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                }
+                .padding()
+                .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12))
+            }
+        }
+        .padding()
+    }
+
+    private var toyGrid: some View {
+        ScrollView {
+            LazyVGrid(columns: columns, spacing: 16) {
+                ForEach(appModel.toyStore.toys) { toy in
+                    ToyCard(toy: toy) {
+                        selectedToy = toy
+                    }
+                }
+            }
+            .padding()
+        }
+    }
+
+    private var newScanSheet: some View {
+        NavigationStack {
+            VStack(spacing: 24) {
+                Image(systemName: "camera.viewfinder")
+                    .font(.system(size: 60))
+                    .foregroundStyle(.blue)
+
+                Text("Name Your Toy")
+                    .font(.title2)
+                    .fontWeight(.bold)
+
+                TextField("e.g., Piggy", text: $newToyName)
+                    .textFieldStyle(.roundedBorder)
+                    .frame(maxWidth: 300)
+
+                Button("Start Scanning") {
+                    guard !newToyName.trimmingCharacters(in: .whitespaces).isEmpty else { return }
+                    showNewScanSheet = false
+                    appModel.startNewScan(toyName: newToyName.trimmingCharacters(in: .whitespaces))
+                    newToyName = ""
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.large)
+                .disabled(newToyName.trimmingCharacters(in: .whitespaces).isEmpty)
+            }
+            .padding()
+            .navigationTitle("New Scan")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") {
+                        showNewScanSheet = false
+                        newToyName = ""
+                    }
+                }
+            }
+        }
+        .presentationDetents([.medium])
+    }
+}
+
+/// Card view for a single toy in the gallery grid.
+struct ToyCard: View {
+    let toy: ToyModel
+    let onTap: () -> Void
+
+    var body: some View {
+        Button(action: onTap) {
+            VStack(spacing: 8) {
+                // Thumbnail placeholder (later: render 3D preview)
+                ZStack {
+                    RoundedRectangle(cornerRadius: 16)
+                        .fill(.ultraThinMaterial)
+                        .aspectRatio(1, contentMode: .fit)
+
+                    Image(systemName: "cube.fill")
+                        .font(.system(size: 40))
+                        .foregroundStyle(.blue.opacity(0.7))
+                }
+
+                Text(toy.name)
+                    .font(.headline)
+                    .lineLimit(1)
+
+                Text(toy.createdAt, style: .date)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .buttonStyle(.plain)
+    }
+}
