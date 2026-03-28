@@ -271,6 +271,6 @@ struct ToyCard: View {
                     .foregroundStyle(.secondary)
             }
         }
-        .buttonStyle(.plain)
+        .accessibilityAddTraits(.isButton)
     }
 }

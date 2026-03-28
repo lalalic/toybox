@@ -100,4 +100,51 @@ final class AppModel {
         currentToy = nil
         state = .home
     }
+
+    /// Scans Documents directory for existing capture folders with photos that haven't been reconstructed yet.
+    /// Returns (directoryName, imageCount) for the best candidate.
+    func discoverExistingCaptures() -> (String, Int)? {
+        let docs = URL.documentsDirectory
+        let fm = FileManager.default
+        guard let contents = try? fm.contentsOfDirectory(atPath: docs.path) else { return nil }
+
+        var bestCandidate: (String, Int)? = nil
+        for dirName in contents {
+            // Must be a valid UUID directory
+            guard UUID(uuidString: dirName) != nil else { continue }
+            let imagesDir = docs.appendingPathComponent(dirName).appendingPathComponent("Images")
+            let modelsDir = docs.appendingPathComponent(dirName).appendingPathComponent("Models")
+            guard fm.fileExists(atPath: imagesDir.path) else { continue }
+            // Skip if already has a model
+            let modelFiles = (try? fm.contentsOfDirectory(atPath: modelsDir.path))?.filter { $0.hasSuffix(".usdz") } ?? []
+            if !modelFiles.isEmpty { continue }
+            // Count images
+            let files = (try? fm.contentsOfDirectory(atPath: imagesDir.path)) ?? []
+            let imageFiles = files.filter { $0.hasSuffix(".heic") || $0.hasSuffix(".jpg") || $0.hasSuffix(".png") }
+            if imageFiles.count >= 3 {
+                if bestCandidate == nil || imageFiles.count > bestCandidate!.1 {
+                    bestCandidate = (dirName, imageFiles.count)
+                }
+            }
+        }
+        return bestCandidate
+    }
+
+    /// Resume reconstruction from an existing capture folder
+    func resumeReconstruction(directoryName: String, toyName: String) {
+        guard let uuid = UUID(uuidString: directoryName) else {
+            state = .failed("Invalid directory name: \(directoryName)")
+            return
+        }
+        let toy = ToyModel(existingID: uuid, name: toyName)
+        currentToy = toy
+        do {
+            let folder = try CaptureFolderManager(toyDirectoryName: directoryName)
+            captureFolder = folder
+            state = .reconstructing
+            logger.info("Resuming reconstruction for \(toyName) from \(directoryName)")
+        } catch {
+            state = .failed("Failed to set up reconstruction: \(error.localizedDescription)")
+        }
+    }
 }

@@ -29,8 +29,11 @@ case "$CMD" in
   swipe)
     ARGS="{\"command\":\"swipe\",\"direction\":\"$1\"}"
     ;;
+  tap_xy)
+    ARGS="{\"command\":\"tap_xy\",\"x\":$1,\"y\":$2}"
+    ;;
   *)
-    echo "Usage: $0 {snapshot|tap|type|find|screenshot|swipe} [args...]"
+    echo "Usage: $0 {snapshot|tap|tap_xy|type|find|screenshot|swipe} [args...]"
     exit 1
     ;;
 esac

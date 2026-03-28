@@ -23,4 +23,11 @@ struct ToyModel: Identifiable, Codable {
         self.name = name
         self.createdAt = Date()
     }
+
+    /// Resume from an existing capture directory (whose name is a UUID)
+    init(existingID: UUID, name: String) {
+        self.id = existingID
+        self.name = name
+        self.createdAt = Date()
+    }
 }
