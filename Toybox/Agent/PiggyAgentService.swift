@@ -21,11 +21,11 @@ final class PiggyAgentService {
 	}()
 
 	@ObservationIgnored private var client: CopilotClient?
-	@ObservationIgnored private var session: CopilotSession?
+	@ObservationIgnored private var agent: CopilotAgent?
 	@ObservationIgnored private let speaker = AVSpeechSynthesizer()
 	@ObservationIgnored private let store = PiggyRelaySessionStore.shared
 	@ObservationIgnored private var activePersonaSignature: String?
-	/// Captured response from the relay's send_response tool
+	/// Captured response from the agent's send_response tool (auto-injected by createAgent)
 	@ObservationIgnored private var capturedResponse: String?
 
 	func ask(_ userMessage: String, as toyName: String, settings: PiggyPersonaSettings) async -> String? {
@@ -38,7 +38,7 @@ final class PiggyAgentService {
 		defer { isThinking = false }
 
 		do {
-			let session = try await ensureSession(for: toyName, settings: settings)
+			let agent = try await ensureAgent(for: toyName, settings: settings)
 			let prompt = """
 			You are \(toyName), a cute toy pig living on the user's iPhone.
 			Reply in first person as the toy.
@@ -54,14 +54,14 @@ final class PiggyAgentService {
 			"""
 
 			// sendAndWait captures assistant.message content, but relay uses
-			// send_response tool instead. We capture that via the tool handler
-			// registered in ensureSession and fall back to it here.
-			let directReply = try await session.sendAndWait(prompt: prompt, timeout: 90)
+			// send_response tool instead (auto-injected by createAgent).
+			// We capture that via onResponse and fall back to it here.
+			let directReply = try await agent.session.sendAndWait(prompt: prompt, timeout: 90)
 			let reply = directReply?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
 				? directReply : capturedResponse
 
-			if let snapshot = session.snapshotData {
-				store.saveSnapshot(snapshot, timestamp: session.snapshotTimestamp)
+			if let snapshot = agent.session.snapshotData {
+				store.saveSnapshot(snapshot, timestamp: agent.session.snapshotTimestamp)
 			}
 
 			guard let reply, !reply.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
@@ -81,12 +81,12 @@ final class PiggyAgentService {
 
 	func disconnect() {
 		Task {
-			if let session {
-				try? await session.disconnect()
+			if let agent {
+				try? await agent.session.disconnect()
 			}
 			speaker.stopSpeaking(at: .immediate)
 			client?.disconnect()
-			session = nil
+			agent = nil
 			client = nil
 			activePersonaSignature = nil
 			isConnected = false
@@ -97,14 +97,14 @@ final class PiggyAgentService {
 		pendingGesture = nil
 	}
 
-	private func ensureSession(for toyName: String, settings: PiggyPersonaSettings) async throws -> CopilotSession {
+	private func ensureAgent(for toyName: String, settings: PiggyPersonaSettings) async throws -> CopilotAgent {
 		let signature = "\(toyName)|\(settings.personality)|\(settings.age.rawValue)|\(settings.voice.rawValue)"
-		if activePersonaSignature != signature, session != nil {
+		if activePersonaSignature != signature, agent != nil {
 			disconnect()
 		}
 
-		if let session {
-			return session
+		if let agent {
+			return agent
 		}
 
 		let transport = WebSocketTransport(host: relayHost, port: relayPort)
@@ -114,30 +114,31 @@ final class PiggyAgentService {
 		store.lastRelayHost = relayHost
 		store.lastRelayPort = relayPort
 
-		let tools = buildGestureTools()
-
-		let config = SessionConfig(
+		let agent = try await client.createAgent(config: AgentConfig(
 			model: "gpt-4.1",
-			tools: tools,
-			systemMessage: .append("You are \(toyName), a scanned pig toy companion living in Toybox on iPhone. Your personality is \(settings.personality). Your age vibe is \(settings.age.promptText). Your voice style is \(settings.voice.promptText). You are affectionate, child-safe, playful, and emotionally warm. Speak like a tiny best friend with a gentle piggy personality. Stay in character as the toy, keep answers concise, and avoid sounding like a generic AI assistant. When fitting, you may call one of your gesture tools to animate your body before you speak."),
+			instructions: "You are \(toyName), a scanned pig toy companion living in Toybox on iPhone. Your personality is \(settings.personality). Your age vibe is \(settings.age.promptText). Your voice style is \(settings.voice.promptText). You are affectionate, child-safe, playful, and emotionally warm. Speak like a tiny best friend with a gentle piggy personality. Stay in character as the toy, keep answers concise, and avoid sounding like a generic AI assistant. When fitting, you may call one of your gesture tools to animate your body before you speak.",
+			tools: buildGestureTools(),
 			clientId: store.clientId,
 			snapshot: store.savedSnapshot,
-			onPermissionRequest: { _ in .approved }
-		)
+			onResponse: { [weak self] message in
+				await MainActor.run { self?.capturedResponse = message }
+			},
+			onAskUser: { _ in
+				return "User is busy right now. Continue with your best guess."
+			}
+		))
 
-		let session = try await client.createSession(config: config)
-
-		if let snapshot = session.snapshotData {
-			store.saveSnapshot(snapshot, timestamp: session.snapshotTimestamp)
+		if let snapshot = agent.session.snapshotData {
+			store.saveSnapshot(snapshot, timestamp: agent.session.snapshotTimestamp)
 		}
 
 		self.client = client
-		self.session = session
+		self.agent = agent
 		self.activePersonaSignature = signature
 		self.isConnected = true
 
 		piggyAgentLogger.info("Piggy agent connected via relay \(self.relayHost):\(self.relayPort)")
-		return session
+		return agent
 	}
 
 	private func speak(_ text: String) {
@@ -172,51 +173,6 @@ final class PiggyAgentService {
 			ToolDefinition(name: "blink", description: "Make Piggy blink cutely.", skipPermission: true) { [weak self] _ in
 				await MainActor.run { self?.pendingGesture = .blink }
 				return "Piggy blinked."
-			},
-			// Relay agent-loop tools: send_response delivers the agent's reply
-			ToolDefinition(
-				name: "send_response",
-				description: "Send a response message to the user.",
-				parameters: .object([
-					"type": .string("object"),
-					"properties": .object([
-						"message": .object([
-							"type": .string("string"),
-							"description": .string("The response message"),
-						]),
-					]),
-					"required": .array([.string("message")]),
-				]),
-				skipPermission: true
-			) { [weak self] args in
-				let message: String
-				if case .object(let dict) = args, case .string(let msg) = dict["message"] {
-					message = msg
-				} else if case .string(let msg) = args {
-					message = msg
-				} else {
-					message = String(describing: args)
-				}
-				await MainActor.run { self?.capturedResponse = message }
-				return "Response delivered to user."
-			},
-			// Relay agent-loop tools: ask_user requests input
-			ToolDefinition(
-				name: "ask_user",
-				description: "Ask the user a question.",
-				parameters: .object([
-					"type": .string("object"),
-					"properties": .object([
-						"question": .object([
-							"type": .string("string"),
-							"description": .string("The question to ask"),
-						]),
-					]),
-					"required": .array([.string("question")]),
-				]),
-				skipPermission: true
-			) { _ in
-				return "User is busy right now. Continue with your best guess."
 			},
 		]
 	}
