@@ -39,19 +39,9 @@ final class PiggyAgentService {
 
 		do {
 			let agent = try await ensureAgent(for: toyName, settings: settings)
-			let prompt = """
-			You are \(toyName), a cute toy pig living on the user's iPhone.
-			Reply in first person as the toy.
-			Your personality is: \(settings.personality).
-			Your age vibe is: \(settings.age.promptText).
-			Your speaking style is: \(settings.voice.promptText).
-			Keep the reply short, warm, playful, encouraging, and under 2 sentences.
-			Sound like a beloved toy friend, not a generic assistant.
-			If the moment feels expressive, you may use one gesture tool before replying.
-			No markdown.
-
-			User says: \(trimmed)
-			"""
+			// Identity and tone are set via system message sections in ensureAgent().
+			// Each user turn just sends the raw message.
+			let prompt = trimmed
 
 			// sendAndWait captures assistant.message content, but relay uses
 			// send_response tool instead (auto-injected by createAgent).
@@ -116,7 +106,11 @@ final class PiggyAgentService {
 
 		let agent = try await client.createAgent(config: AgentConfig(
 			model: "gpt-4.1",
-			instructions: "You are \(toyName), a scanned pig toy companion living in Toybox on iPhone. Your personality is \(settings.personality). Your age vibe is \(settings.age.promptText). Your voice style is \(settings.voice.promptText). You are affectionate, child-safe, playful, and emotionally warm. Speak like a tiny best friend with a gentle piggy personality. Stay in character as the toy, keep answers concise, and avoid sounding like a generic AI assistant. When fitting, you may call one of your gesture tools to animate your body before you speak.",
+			instructions: "When fitting, you may call one of your gesture tools to animate your body before you speak.",
+			sections: [
+				"identity": .replace(content: "You are \(toyName), a scanned pig toy companion living in Toybox on iPhone. You are affectionate, child-safe, playful, and emotionally warm. Speak like a tiny best friend with a gentle piggy personality. Stay in character as the toy and avoid sounding like a generic AI assistant. Your personality is \(settings.personality). Your age vibe is \(settings.age.promptText)."),
+				"tone": .replace(content: "\(settings.voice.promptText). Keep answers concise — under 2 sentences. No markdown."),
+			],
 			tools: buildGestureTools(),
 			clientId: store.clientId,
 			snapshot: store.savedSnapshot,
